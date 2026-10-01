@@ -1,0 +1,586 @@
+/**
+ * 3D 人培室管理系統 · Google Apps Script 後端
+ * 規格：GAS-串接規格.md（v1.0）
+ *
+ * 首次使用：
+ *   1. 在 GAS 編輯器選函式 setup → 執行（會要求授權）
+ *      只會新增下方 SHEETS 的 6 張分頁，不會動到試算表裡既有的其他分頁
+ *   2. 部署 → 新增部署作業 → 網頁應用程式（執行身分：我；存取權：任何人）
+ */
+
+/** ───── 依你的 Sheet 實際結構調整這一區 ───── */
+const SHEET_ID = '';   // '' = 與此腳本綁定的試算表（擴充功能 → Apps Script 建立）；獨立專案才需填試算表 ID
+const TZ = 'Asia/Taipei';
+const DEMO_TODAY = '2026-09-30';   // 寫入 Config.today；清空該格即改用伺服器真實日期
+
+const SHEETS = {
+  bookings:   { name: 'Bookings',   cols: { id:'id', sid:'sid', date:'date',
+                                            slot:'slot', status:'status',
+                                            updatedAt:'updatedAt' } },
+  leaves:     { name: 'Leaves',     cols: { id:'id', sid:'sid', date:'date',
+                                            reason:'reason', status:'status',
+                                            updatedAt:'updatedAt' } },
+  faults:     { name: 'Faults',     cols: { id:'id', eq:'eq', desc:'desc', by:'by',
+                                            time:'time', status:'status',
+                                            updatedAt:'updatedAt' } },
+  useLog:     { name: 'UseLog',     cols: { who:'who', item:'item',
+                                            qty:'qty', time:'time' } },
+  attendance: { name: 'Attendance', cols: { date:'date', sid:'sid',
+                                            present:'present',
+                                            updatedAt:'updatedAt' } },
+  config:     { name: 'Config',     cols: { key:'key', value:'value' } }
+};
+/** ───── 以下不需修改 ───── */
+
+const LIVE = ['pending', 'confirmed', 'checkedin', 'done'];
+const BOOKING_STATUS = ['confirmed', 'checkedin', 'done', 'noshow'];
+const LEAVE_STATUS = ['approved', 'rejected'];
+const FAULT_STATUS = ['open', 'fixed'];
+const USELOG_RETURN = 200;   // load 回傳的最新筆數（與前端上限一致）；Sheet 保留全部
+
+// setConfig 可寫入的鍵與型別。closing 走 setClosing；today、slotsV2 只能在 Sheet 手動改
+const CFG_TYPES = {
+  labBadge:'str', labName:'str', labSub:'str', rulesTitle:'str',
+  checkoutItems:'str', closingItems:'str',
+  semStart:'date', semEnd:'date',
+  trainDay:'num', capacity:'num', noShowLimit:'num',
+  roles:'list', classes:'list', slots:'list', students:'list',
+  equipment:'list', consumables:'list', rules:'list'
+};
+
+/* ════════════════════════ 進入點 ════════════════════════ */
+
+function doGet(e) {
+  const action = (e && e.parameter && e.parameter.action) || 'load';
+  if (action !== 'load') return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), false));
+  try {
+    return json_({ ok: true, data: state_() });
+  } catch (x) {
+    return json_(failure_(x, false));
+  }
+}
+
+function doPost(e) {
+  let p;
+  try {
+    p = JSON.parse(e.postData.contents);
+    if (!p || typeof p !== 'object') throw 0;
+  } catch (x) {
+    return json_(failure_(new ApiError('BAD_PAYLOAD', '參數不完整'), true));
+  }
+  const fn = Object.prototype.hasOwnProperty.call(ACTIONS, p.action) ? ACTIONS[p.action] : null;
+  if (!fn) return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), true));
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return json_(failure_(new ApiError('LOCK_TIMEOUT', '伺服器忙碌，請重試'), true));
+  try {
+    const extra = fn(p) || {};
+    SpreadsheetApp.flush();
+    return json_(Object.assign({ ok: true }, extra, { data: state_() }));
+  } catch (x) {
+    return json_(failure_(x, true));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ════════════════════════ Actions ════════════════════════ */
+
+const ACTIONS = {
+
+  book(p) {
+    const sid = reqStr_(p.sid), slot = reqStr_(p.slot), date = reqDate_(p.date);
+    const cfg = readCfg_().cfg, today = today_(cfg);
+    if (!cfg.students.some(s => s.id === sid)) throw new ApiError('BAD_PAYLOAD', '學員不存在');
+
+    const sl = cfg.slots.find(s => s.id === slot);
+    if (!sl) throw new ApiError('SLOT_NOT_FOUND', '時段不存在');
+    if (!isOpen_(sl)) throw new ApiError('SLOT_CLOSED', '此時段不開放預約');
+    const d = dow_(date);
+    if (d < 1 || d > 5) throw new ApiError('NOT_WEEKDAY', '僅開放週一至週五');
+    if (!inSem_(cfg, date)) throw new ApiError('OUT_OF_SEMESTER', `已超出本學期（至 ${slash_(cfg.semEnd)}）`);
+    if (date < today) throw new ApiError('PAST_DATE', '此時段已結束');
+    if (d === Number(cfg.trainDay) && cfg.classes.some(c => overlap_(sl, c)))
+      throw new ApiError('TRAINING_CLASH', '與固定培訓時間重疊');
+
+    const t = readTable_('bookings');
+    // 與前端一致：已不存在的時段裡的預約不計入任何統計
+    const slotIds = new Set(cfg.slots.map(s => s.id));
+    const all = t.rows.map(bookingOf_).filter(b => slotIds.has(b.slot));
+    const limit = Math.max(1, Number(cfg.noShowLimit) || 1);
+    if (all.filter(b => b.sid === sid && b.status === 'noshow').length >= limit)
+      throw new ApiError('SUSPENDED', `無故缺席已達 ${limit} 次，預約權限暫停至學期結束`);
+
+    const mine = all.filter(b => b.sid === sid && b.date === date && LIVE.includes(b.status));
+    if (mine.some(b => b.slot === slot)) throw new ApiError('DUPLICATE', '你已預約此時段');
+    const clash = mine.map(b => cfg.slots.find(s => s.id === b.slot)).find(o => overlap_(sl, o));
+    if (clash) throw new ApiError('TIME_OVERLAP', `與你已預約的 ${clash.name || ''} ${clash.start}–${clash.end} 時間重疊`);
+
+    const cap = Number(cfg.capacity) || 1;
+    if (all.filter(b => b.date === date && b.slot === slot && LIVE.includes(b.status)).length >= cap)
+      throw new ApiError('FULL', `此時段已達上限 ${cap} 人`);
+
+    const id = nextId_(t);
+    append_(t, { id, sid, date, slot, status: 'pending', updatedAt: iso_() });
+    return { id };
+  },
+
+  cancelBooking(p) {
+    const t = readTable_('bookings');
+    t.sh.deleteRow(findById_(t, p.id)._row);
+  },
+
+  setBookingStatus(p) {
+    const status = reqEnum_(p.status, BOOKING_STATUS);
+    const t = readTable_('bookings');
+    update_(t, findById_(t, p.id), { status, updatedAt: iso_() });
+  },
+
+  submitLeave(p) {
+    const sid = reqStr_(p.sid), date = reqDate_(p.date);
+    const reason = String(p.reason == null ? '' : p.reason).trim();
+    if (!reason) throw new ApiError('BAD_PAYLOAD', '請填寫請假原因');
+    const cfg = readCfg_().cfg;
+    if (!cfg.students.some(s => s.id === sid)) throw new ApiError('BAD_PAYLOAD', '學員不存在');
+    if (dow_(date) !== Number(cfg.trainDay) || !inSem_(cfg, date))
+      throw new ApiError('NOT_TRAINING_DAY', '該日非固定培訓日');
+    if (date < today_(cfg)) throw new ApiError('PAST_DATE', '該培訓日已過');
+
+    const t = readTable_('leaves');
+    if (t.rows.some(r => r.sid === sid && normDate_(r.date) === date && r.status !== 'rejected'))
+      throw new ApiError('DUPLICATE_LEAVE', '該日已有請假申請');
+    const id = nextId_(t);
+    append_(t, { id, sid, date, reason, status: 'pending', updatedAt: iso_() });
+    return { id };
+  },
+
+  setLeaveStatus(p) {
+    const status = reqEnum_(p.status, LEAVE_STATUS);
+    const t = readTable_('leaves');
+    update_(t, findById_(t, p.id), { status, updatedAt: iso_() });
+  },
+
+  submitFault(p) {
+    const eq = reqStr_(p.eq);
+    const desc = String(p.desc == null ? '' : p.desc).trim();
+    if (!desc) throw new ApiError('BAD_PAYLOAD', '請描述故障狀況');
+    const cfg = readCfg_().cfg;
+    if (!cfg.equipment.some(e => e.key === eq)) throw new ApiError('BAD_PAYLOAD', '設備不存在');
+    const t = readTable_('faults');
+    const id = nextId_(t);
+    append_(t, { id, eq, desc, by: String(p.by || ''), time: stamp_(cfg), status: 'open', updatedAt: iso_() });
+    return { id };
+  },
+
+  setFaultStatus(p) {
+    const status = reqEnum_(p.status, FAULT_STATUS);
+    const t = readTable_('faults');
+    update_(t, findById_(t, p.id), { status, updatedAt: iso_() });
+  },
+
+  logUse(p) {
+    const { t, cfg } = readCfg_();
+    const item = cfg.consumables.find(c => c.id === p.item);
+    if (!item) throw new ApiError('ITEM_NOT_FOUND', '耗材項目不存在');
+    const qty = Number(p.qty);
+    if (!Number.isInteger(qty) || qty < 1) throw new ApiError('BAD_PAYLOAD', '數量須為 1 以上的整數');
+    const stock = Number(item.stock) || 0;
+    if (stock < qty) throw new ApiError('INSUFFICIENT_STOCK', '庫存不足');
+
+    // 扣庫存與寫 UseLog 在同一個鎖內
+    writeCfg_(t, { consumables: cfg.consumables.map(c => c.id === item.id ? Object.assign({}, c, { stock: stock - qty }) : c) });
+    append_(readTable_('useLog'), { who: String(p.who || ''), item: item.id, qty, time: stamp_(cfg) });
+  },
+
+  restock(p) {
+    const { t, cfg } = readCfg_();
+    const item = cfg.consumables.find(c => c.id === p.item);
+    if (!item) throw new ApiError('ITEM_NOT_FOUND', '耗材項目不存在');
+    const stock = (Number(item.stock) || 0) + (Number(item.step) || 1);
+    writeCfg_(t, { consumables: cfg.consumables.map(c => c.id === item.id ? Object.assign({}, c, { stock }) : c) });
+  },
+
+  setAttendance(p) {
+    const date = reqDate_(p.date), sid = reqStr_(p.sid);
+    if (typeof p.present !== 'boolean') throw new ApiError('BAD_PAYLOAD', '參數不完整');
+    const t = readTable_('attendance');
+    const row = t.rows.find(r => normDate_(r.date) === date && r.sid === sid);
+    const rec = { date, sid, present: p.present, updatedAt: iso_() };
+    if (row) update_(t, row, rec); else append_(t, rec);
+  },
+
+  setClosing(p) {
+    const c = p.closing;
+    if (!c || typeof c !== 'object' || Array.isArray(c)) throw new ApiError('BAD_PAYLOAD', '參數不完整');
+    const closing = {};
+    Object.keys(c).forEach(k => { if (c[k]) closing[k] = true; });
+    writeCfg_(readCfg_().t, { closing });
+  },
+
+  setConfig(p) {
+    const { t, cfg } = readCfg_();
+    const entries = checkCfgEntries_([{ key: p.key, value: p.value }], cfg);
+    writeCfg_(t, entries);
+  },
+
+  setConfigBatch(p) {
+    if (!Array.isArray(p.entries) || !p.entries.length) throw new ApiError('BAD_PAYLOAD', '參數不完整');
+    const { t, cfg } = readCfg_();
+    writeCfg_(t, checkCfgEntries_(p.entries, cfg));   // 全部驗證通過才寫入
+  },
+
+  deleteSlot(p) {
+    const id = reqStr_(p.id);
+    const { t, cfg } = readCfg_();
+    const sl = cfg.slots.find(s => s.id === id);
+    if (!sl) throw new ApiError('SLOT_NOT_FOUND', '時段不存在');
+    assertSlotUnused_(sl);
+    writeCfg_(t, { slots: cfg.slots.filter(s => s.id !== id) });
+  },
+
+  resetDemo() {
+    seedAll_();
+  }
+};
+
+/* ════════════════════════ 設定驗證 ════════════════════════ */
+
+function checkCfgEntries_(list, cfg) {
+  const out = {};
+  list.forEach(en => {
+    if (!en || typeof en !== 'object') throw new ApiError('BAD_PAYLOAD', '參數不完整');
+    const key = en.key, v = en.value, type = Object.prototype.hasOwnProperty.call(CFG_TYPES, key) ? CFG_TYPES[key] : null;
+    if (!type) throw new ApiError('BAD_CONFIG_KEY', '不允許的設定項');
+    const bad = () => { throw new ApiError('BAD_PAYLOAD', `設定「${key}」格式錯誤`); };
+    if (type === 'str' && typeof v !== 'string') bad();
+    if (type === 'date' && !(v === '' || (typeof v === 'string' && isDate_(v)))) bad();
+    if (type === 'num' && !(typeof v === 'number' && isFinite(v))) bad();
+    if (type === 'list' && !(Array.isArray(v) && v.every(x => x && typeof x === 'object' && !Array.isArray(x)))) bad();
+    out[key] = v;
+  });
+  // 以整包陣列覆寫 slots 時，同樣不可讓仍有預約的時段消失（等同 deleteSlot）
+  if (out.slots) {
+    if (out.slots.some(s => typeof s.id !== 'string' || !s.id)) throw new ApiError('BAD_PAYLOAD', '設定「slots」格式錯誤');
+    const kept = new Set(out.slots.map(s => s.id));
+    cfg.slots.filter(s => !kept.has(s.id)).forEach(assertSlotUnused_);
+  }
+  return out;
+}
+
+function assertSlotUnused_(sl) {
+  const used = readTable_('bookings').rows.filter(r => r.slot === sl.id).length;
+  if (used) throw new ApiError('SLOT_IN_USE', `「${sl.name || sl.id}」已有 ${used} 筆預約紀錄，無法刪除`);
+}
+
+/* ════════════════════════ 狀態組裝 ════════════════════════ */
+
+function state_() {
+  const cfg = readCfg_().cfg;
+  const attendance = {};
+  readTable_('attendance').rows.forEach(r => { if (isTrue_(r.present)) attendance[normDate_(r.date) + '|' + r.sid] = true; });
+  const pub = Object.assign({}, cfg);
+  delete pub.today; delete pub.closing;
+  return {
+    today: today_(cfg),
+    bookings: readTable_('bookings').rows.map(bookingOf_),
+    leaves: readTable_('leaves').rows.map(r => ({ id: Number(r.id), sid: r.sid, date: normDate_(r.date), reason: r.reason, status: r.status })),
+    attendance,
+    faults: readTable_('faults').rows.map(r => ({ id: Number(r.id), eq: r.eq, desc: r.desc, by: r.by, time: r.time, status: r.status })),
+    // Sheet 由舊到新附加；前端要新的在前
+    useLog: readTable_('useLog').rows.slice(-USELOG_RETURN).reverse().map(r => ({ who: r.who, item: r.item, qty: Number(r.qty) || 0, time: r.time })),
+    closing: cfg.closing && typeof cfg.closing === 'object' ? cfg.closing : {},
+    cfg: pub
+  };
+}
+
+function bookingOf_(r) {
+  return { id: Number(r.id), sid: r.sid, date: normDate_(r.date), slot: r.slot, status: r.status };
+}
+
+/* ════════════════════════ Sheet 存取 ════════════════════════ */
+
+let SS_ = null;
+function ss_() {
+  return SS_ || (SS_ = SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet());
+}
+
+function readTable_(k) {
+  const def = SHEETS[k];
+  const sh = ss_().getSheetByName(def.name);
+  if (!sh) throw new ApiError('SETUP', `找不到分頁「${def.name}」，請先在 GAS 編輯器執行 setup()`);
+  // 一律讀顯示文字，避免日期被 Sheets 轉成 Date 物件
+  const vals = sh.getDataRange().getDisplayValues();
+  const head = (vals[0] || []).map(h => String(h).trim());
+  const idx = {};
+  Object.keys(def.cols).forEach(f => {
+    const i = head.indexOf(def.cols[f]);
+    if (i < 0) throw new ApiError('SETUP', `分頁「${def.name}」缺少欄位「${def.cols[f]}」`);
+    idx[f] = i;
+  });
+  const rows = [];
+  for (let r = 1; r < vals.length; r++) {
+    const v = vals[r];
+    if (v.every(x => x === '')) continue;
+    const o = { _row: r + 1 };
+    Object.keys(idx).forEach(f => { o[f] = String(v[idx[f]]).trim(); });
+    rows.push(o);
+  }
+  return { sh, idx, width: head.length, rows };
+}
+
+function append_(t, obj) {
+  const row = new Array(t.width).fill('');
+  Object.keys(t.idx).forEach(f => { if (f in obj) row[t.idx[f]] = cell_(obj[f]); });
+  const r = t.sh.getLastRow() + 1;
+  t.sh.getRange(r, 1, 1, t.width).setNumberFormat('@').setValues([row]);
+  return r;
+}
+
+// 逐格寫入，保留使用者自行加在同一列的其他欄位
+function update_(t, row, obj) {
+  Object.keys(obj).forEach(f => {
+    if (!(f in t.idx)) return;
+    t.sh.getRange(row._row, t.idx[f] + 1).setNumberFormat('@').setValue(cell_(obj[f]));
+    row[f] = cell_(obj[f]);
+  });
+}
+
+function findById_(t, id) {
+  const n = Number(id);
+  if (!isFinite(n) || id === '' || id == null) throw new ApiError('BAD_PAYLOAD', '參數不完整');
+  const row = t.rows.find(r => Number(r.id) === n);
+  if (!row) throw new ApiError('NOT_FOUND', '找不到資料');
+  return row;
+}
+
+function nextId_(t) {
+  return t.rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0) + 1;
+}
+
+function cell_(v) {
+  if (v === true) return 'TRUE';
+  if (v === false) return 'FALSE';
+  return v == null ? '' : String(v);
+}
+
+/* ─── Config（逐鍵存，value 為 JSON 字串） ─── */
+
+function readCfg_() {
+  const t = readTable_('config');
+  const cfg = seedCfg_();   // 缺漏的鍵以預設值補齊（與前端 Object.assign(seedCfg(), saved.cfg) 一致）
+  t.rows.forEach(r => {
+    if (!r.key) return;
+    try { cfg[r.key] = JSON.parse(r.value); } catch (x) { cfg[r.key] = r.value; }
+  });
+  ['roles', 'classes', 'slots', 'students', 'equipment', 'consumables', 'rules'].forEach(k => {
+    if (!Array.isArray(cfg[k])) cfg[k] = [];
+  });
+  return { t, cfg };
+}
+
+function writeCfg_(t, entries) {
+  Object.keys(entries).forEach(key => {
+    const value = JSON.stringify(entries[key]);
+    const row = t.rows.find(r => r.key === key);
+    if (row) update_(t, row, { value });
+    else { const r = append_(t, { key, value }); t.rows.push({ _row: r, key, value }); }
+  });
+}
+
+/* ════════════════════════ 日期與規則 ════════════════════════ */
+
+const pad_ = n => String(n).padStart(2, '0');
+const valid_ = x => !!x && String(x.start) < String(x.end);
+const overlap_ = (a, b) => valid_(a) && valid_(b) && a.start < b.end && b.start < a.end;
+const isOpen_ = sl => sl.open !== 'no' && valid_(sl);
+const isTrue_ = v => String(v).toUpperCase() === 'TRUE';
+const slash_ = s => String(s || '').replace(/-/g, '/');
+const iso_ = () => new Date().toISOString();
+
+function isDate_(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  if (!m) return false;
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  return d.getFullYear() === +m[1] && d.getMonth() === +m[2] - 1 && d.getDate() === +m[3];
+}
+
+// 容忍 2026/9/30、2026-9-30 等手動輸入，統一成 YYYY-MM-DD
+function normDate_(s) {
+  const m = /^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/.exec(String(s || '').trim());
+  return m ? `${m[1]}-${pad_(m[2])}-${pad_(m[3])}` : String(s || '').trim();
+}
+
+function dow_(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+function inSem_(cfg, d) {
+  return (!cfg.semStart || d >= cfg.semStart) && (!cfg.semEnd || d <= cfg.semEnd);
+}
+
+function today_(cfg) {
+  const t = normDate_(cfg.today);
+  return isDate_(t) ? t : Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+}
+
+// 與前端 now() 相同格式：MM/DD HH:mm（日期取系統今日，時間取真實時鐘）
+function stamp_(cfg) {
+  const t = today_(cfg);
+  return t.slice(5, 7) + '/' + t.slice(8, 10) + ' ' + Utilities.formatDate(new Date(), TZ, 'HH:mm');
+}
+
+/* ─── 參數檢查 ─── */
+
+function reqStr_(v) {
+  if (typeof v !== 'string' || !v.trim()) throw new ApiError('BAD_PAYLOAD', '參數不完整');
+  return v.trim();
+}
+function reqDate_(v) {
+  if (typeof v !== 'string' || !isDate_(v)) throw new ApiError('BAD_PAYLOAD', '日期格式錯誤');
+  return v;
+}
+function reqEnum_(v, list) {
+  if (!list.includes(v)) throw new ApiError('BAD_PAYLOAD', '不支援的狀態');
+  return v;
+}
+
+/* ════════════════════════ 回應 ════════════════════════ */
+
+function ApiError(code, message) {
+  this.code = code;
+  this.message = message;
+}
+
+function failure_(x, withData) {
+  const known = x instanceof ApiError;
+  const res = { ok: false, error: known ? x.code : 'SERVER', message: known ? x.message : '伺服器錯誤：' + (x && x.message || x) };
+  if (withData) {
+    try { res.data = state_(); } catch (e) { res.data = null; }   // 分頁缺失時無法附帶狀態
+  }
+  return res;
+}
+
+function json_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ════════════════════════ 建表與示範資料 ════════════════════════ */
+
+/**
+ * 在 GAS 編輯器手動執行一次。
+ * 建立缺少的分頁與標題列；若 6 張分頁都沒有資料列，就寫入示範資料。
+ * 已有資料時不會覆寫——要重建請在前端按「重設全部示範資料」或執行 resetDemoFromEditor()。
+ */
+function setup() {
+  const book = ss_();
+  Object.keys(SHEETS).forEach(k => {
+    const def = SHEETS[k], heads = Object.values(def.cols);
+    let sh = book.getSheetByName(def.name);
+    if (!sh) sh = book.insertSheet(def.name, book.getNumSheets());
+    const cur = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getDisplayValues()[0].map(String);
+    const missing = heads.filter(h => !cur.includes(h));
+    if (sh.getLastColumn() === 0 || cur.every(h => h === '')) {
+      sh.getRange(1, 1, 1, heads.length).setValues([heads]).setFontWeight('bold');
+    } else if (missing.length) {
+      sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    }
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getLastColumn()).setNumberFormat('@');
+  });
+  const empty = Object.keys(SHEETS).every(k => readTable_(k).rows.length === 0);
+  if (empty) { seedAll_(); Logger.log('已建立 6 張分頁並寫入示範資料'); }
+  else Logger.log('分頁已存在且有資料，未覆寫');
+}
+
+function resetDemoFromEditor() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try { seedAll_(); } finally { lock.releaseLock(); }
+}
+
+function seedAll_() {
+  const now = iso_(), T = DEMO_TODAY;
+  let id = 1;
+  const b = (sid, date, slot, status) => ({ id: id++, sid, date, slot, status, updatedAt: now });
+  const cfg = seedCfg_();
+  cfg.closing = {};
+  cfg.today = DEMO_TODAY;
+
+  const data = {
+    bookings: [
+      b('A8','2026-09-14','p6','noshow'), b('B8','2026-09-15','p2','noshow'), b('B8','2026-09-22','p9','noshow'),
+      b('A1','2026-09-21','p2','done'), b('A3','2026-09-21','p2','done'), b('B2','2026-09-24','p6','done'),
+      b('A2','2026-09-28','p6','done'), b('B1','2026-09-28','p6','done'), b('A8','2026-09-28','p6','noshow'),
+      b('A4','2026-09-29','p9','done'), b('B8','2026-09-29','p9','noshow'), b('B4','2026-09-29','p9','done'),
+      b('A1',T,'p2','checkedin'), b('A6',T,'p2','done'), b('A3',T,'p2','confirmed'), b('B2',T,'p2','confirmed'), b('B5',T,'p2','pending'),
+      b('A1','2026-10-01','p6','pending'), b('A2','2026-10-01','p6','confirmed'), b('B3','2026-10-01','p6','pending'), b('B4','2026-10-01','p6','confirmed'),
+      b('B6','2026-10-01','p6','confirmed'), b('A5','2026-10-01','p6','confirmed'), b('A7','2026-10-01','p6','confirmed'),
+      b('B7','2026-10-02','p2','pending'), b('A4','2026-10-02','p9','confirmed'), b('B1','2026-10-05','p2','pending')
+    ],
+    leaves: [
+      { id:1, sid:'B3', date:T, reason:'身體不適', status:'approved', updatedAt:now },
+      { id:2, sid:'A4', date:'2026-10-07', reason:'系上期中考', status:'pending', updatedAt:now },
+      { id:3, sid:'A2', date:'2026-09-23', reason:'家中有事', status:'approved', updatedAt:now }
+    ],
+    faults: [
+      { id:1, eq:'P3', desc:'噴頭堵塞，出料不順', by:'張家豪', time:'09/29 16:40', status:'open', updatedAt:now },
+      { id:2, eq:'PC06', desc:'開機後螢幕無訊號', by:'值班研究生', time:'09/30 09:12', status:'open', updatedAt:now },
+      { id:3, eq:'P1', desc:'平台調平偏移', by:'王柏凱', time:'09/24 17:05', status:'fixed', updatedAt:now }
+    ],
+    // 由舊到新（state_ 會反轉成新的在前）
+    useLog: [
+      { who:'王柏凱', item:'nozzle', qty:1, time:'09/29 17:30' },
+      { who:'吳承恩', item:'cut', qty:2, time:'09/30 09:05' },
+      { who:'林品妤', item:'pla', qty:1, time:'09/30 09:20' }
+    ],
+    attendance: [],
+    config: Object.keys(cfg).map(key => ({ key, value: JSON.stringify(cfg[key]) }))
+  };
+
+  Object.keys(SHEETS).forEach(k => {
+    const t = readTable_(k);
+    const last = t.sh.getLastRow();
+    if (last > 1) t.sh.getRange(2, 1, last - 1, Math.max(t.width, 1)).clearContent();
+    const rows = data[k].map(o => {
+      const a = new Array(t.width).fill('');
+      Object.keys(t.idx).forEach(f => { if (f in o) a[t.idx[f]] = cell_(o[f]); });
+      return a;
+    });
+    if (rows.length) t.sh.getRange(2, 1, rows.length, t.width).setNumberFormat('@').setValues(rows);
+  });
+}
+
+// 與 index.html 的 seedCfg() 保持一致
+function seedCfg_() {
+  return {
+    labBadge:'3D', labName:'人培室管理', labSub:'TRAINING LAB · 115-1', rulesTitle:'3D 人培室規劃與管理辦法',
+    semStart:'2026-09-14', semEnd:'2026-11-13', trainDay:3, capacity:8, noShowLimit:3,
+    roles:[
+      {key:'trainer',title:'培訓專員',people:'小赫',duties:'整體課程規劃\n教學進度掌控\n學員培訓成果評估'},
+      {key:'tutor',title:'培訓輔導員',people:'周子耘、王柏凱',duties:'現場實作指導\n學員疑難解答\n設備操作示範與基礎維護'},
+      {key:'manager',title:'管理人員',people:'研究生（值班）',duties:'教室借用登記\n設備耗材盤點\n環境安全維護與緊急狀況回報'}
+    ],
+    classes:[
+      {id:'A',code:'A 時段',start:'14:00',end:'16:00',name:'前段班',desc:'核心課程 / 基礎培訓',leadRole:'trainer'},
+      {id:'B',code:'B 時段',start:'16:00',end:'18:00',name:'後段班',desc:'實作練習 / 進階輔導',leadRole:'tutor'}
+    ],
+    slotsV2:true,
+    slots:[['p1','第1節','08:10','09:00','自由時間','隨心時刻','yes'],['p2','第2節','09:10','10:00','自由時間','隨心時刻','yes'],['p3','第3節','10:10','11:00','自由時間','隨心時刻','yes'],['p4','第4節','11:10','12:00','自由時間','隨心時刻','yes'],
+      ['p5','第5節','12:50','13:40','休息時間','隨心時刻','no'],['p6','第6節','13:50','14:40','自由時間','隨心時刻','yes'],['p7','第7節','14:50','15:40','自由時間','隨心時刻','yes'],['p8','第8節','15:50','16:40','自由時間','隨心時刻','yes'],['p9','第9節','16:50','17:40','自由時間','隨心時刻','yes'],
+      ['p10','第中節','17:50','18:20','吃飯時間','滿足這一刻','no'],['p11','第11節','18:30','19:30','緩衝時間','解題大冒險','yes'],['p12','第12節','19:30','20:30','訓練時間','能力修練戰','yes'],['p13','第13節','20:30','21:30','訓練時間','能力修練戰','yes'],
+      ['p14','夜間','21:00','10:00','自由時間','回家睡覺','no']].map(([id,name,start,end,note,slogan,open])=>({id,name,start,end,note,slogan,open})),
+    students:[['A1','林品妤'],['A2','陳冠宇'],['A3','黃詩涵'],['A4','張家豪'],['A5','李欣怡'],['A6','吳承恩'],['A7','劉宜蓁'],['A8','蔡明哲'],
+      ['B1','楊子晴'],['B2','許育誠'],['B3','鄭雅婷'],['B4','謝孟軒'],['B5','郭佩珊'],['B6','洪浩然'],['B7','曾若瑜'],['B8','邱柏宇']].map(([id,name])=>({id,name,group:id[0]})),
+    equipment:[['P1','3D 印表機'],['P2','3D 印表機'],['P3','3D 印表機'],['P4','3D 印表機'],['CNC','CNC 雕刻機'],['PC01','電腦'],['PC02','電腦'],['PC03','電腦'],['PC04','電腦'],['PC05','電腦'],['PC06','電腦'],['PC07','電腦'],['PC08','電腦']].map(([code,type])=>({key:code,code,type})),
+    consumables:[{id:'pla',name:'PLA 絲材',unit:'捲',stock:14,min:5,max:24,step:6},{id:'cut',name:'切削料件',unit:'塊',stock:26,min:10,max:40,step:10},{id:'nozzle',name:'備用噴頭',unit:'個',stock:3,min:4,max:10,step:5}],
+    checkoutItems:'設備已復原（關機、歸位、清除列印平台）\n環境已清潔（桌面、廢料、垃圾帶走）\n耗材已登記或未取用',
+    closingItems:'電源已關閉\n空調已關閉\n門窗已上鎖',
+    rules:[
+      {id:'r1',title:'人員編制與職責',body:'培訓專員（小赫）：整體課程規劃、教學進度掌控、學員培訓成果評估。\n培訓輔導員（周子耘、王柏凱）：現場實作指導、學員疑難解答、設備操作示範與基礎維護。\n管理人員（研究生）：教室借用登記、設備耗材盤點、環境安全維護與緊急狀況回報。'},
+      {id:'r2',title:'半學期固定培訓時段',body:'每週三，採 8 人一組。\nA 時段 14:00–16:00・培訓專員（小赫）・前段班（核心課程 / 基礎培訓）\nB 時段 16:00–18:00・培訓輔導員（子耘、柏凱）・後段班（實作練習 / 進階輔導）'},
+      {id:'r3',title:'自由練習時段管理規範',body:'週三固定培訓以外的開放時間採預約制。\n人數上限：每一時段最高 8 人。\n預約方式：需提前於本系統登記，並經管理人員（研究生）確認。\n簽到簽退：進入前需找當值管理人員簽到，離開前需完成設備復原與環境清潔檢查。'},
+      {id:'r4',title:'設備與空間使用規範',body:'設備維護：電腦設備使用前需確認狀態，如有故障需立即回報管理人員記錄；耗材（PLA 絲材、切削料件等）依規定取用並填寫消耗登記。\n環境安全：可攜帶食物但垃圾請帶走；未加蓋飲料不得進入設備區。最後離開者需確認電源、空調及門窗均已關閉。\n考核與請假：無法參加週三固定培訓需提前向培訓專員（小赫）請假；自由時段預約後無故缺席達 3 次，暫停自由預約權限至學期結束。'}
+    ]
+  };
+}

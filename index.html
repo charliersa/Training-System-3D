@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3EEE3;color:#3B3530;font-family:'Noto Serif TC',serif;line-height:1.55;letter-spacing:.02em;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#B5654A}a:hover{color:#9A513A}
+button,input,select,textarea{font-family:inherit}
+input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6C}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translate(-50%,0)}}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-wrap:wrap;background:#F3EEE3;background-image:radial-gradient(#E2D9C7 .8px,transparent .8px);background-size:20px 20px">
+
+<aside style="flex:1 0 232px;background:#EAE3D5;color:#3B3530;border-right:1px solid #D6CCBA;padding:{{ asidePad }};display:flex;flex-direction:column;gap:22px;position:{{ asidePos }};top:0;z-index:15">
+  <div style="display:flex;align-items:center;gap:10px">
+    <div style="min-width:34px;height:34px;padding:0 6px;background:#B5654A;display:grid;place-items:center;font-family:'Cormorant Garamond','Noto Serif TC',serif;font-weight:600;font-size:14px;color:#fff">{{ cfg.labBadge }}</div>
+    <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+      <div style="font-weight:600;font-size:17px;letter-spacing:.04em">{{ cfg.labName }}</div>
+      <div style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:11px;color:#8C8173">{{ narrowSub }}</div>
+    </div>
+    <sc-if value="{{ narrow }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ toggleMenu }}" aria-label="選單" style="width:44px;height:44px;border:1px solid #CFC5B3;background:{{ menuBtnBg }};cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:0">
+        <span style="display:block;width:20px;height:2px;background:#3B3530;transform:{{ bar1 }};transition:transform .2s"></span>
+        <span style="display:block;width:20px;height:2px;background:#3B3530;opacity:{{ bar2 }};transition:opacity .2s"></span>
+        <span style="display:block;width:20px;height:2px;background:#3B3530;transform:{{ bar3 }};transition:transform .2s"></span>
+      </button>
+    </sc-if>
+  </div>
+  <sc-if value="{{ showMenu }}" hint-placeholder-val="{{ true }}">
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:11px;color:#8C8173;letter-spacing:.12em">目前身分</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+      <sc-for list="{{ roleButtons }}" as="r" hint-placeholder-count="4">
+        <button onClick="{{ r.onClick }}" style="padding:8px 6px;border:1px solid #CFC5B3;background:{{ r.bg }};color:{{ r.fg }};font-size:13px;font-weight:500;cursor:pointer">{{ r.label }}</button>
+      </sc-for>
+    </div>
+    <sc-if value="{{ isStudent }}" hint-placeholder-val="{{ false }}">
+      <select value="{{ me }}" onChange="{{ onMe }}" style="width:100%;padding:8px;background:#F6F1E7;color:#3B3530;border:1px solid #CFC5B3;font-size:13px">
+        <sc-for list="{{ students }}" as="st"><option value="{{ st.id }}">{{ st.label }}</option></sc-for>
+      </select>
+    </sc-if>
+    <div style="font-size:12px;color:#8C8173">登入為：<span style="color:#3B3530">{{ currentName }}</span></div>
+  </div>
+  <nav style="display:flex;flex-direction:column;gap:2px">
+    <sc-for list="{{ nav }}" as="n" hint-placeholder-count="9">
+      <button onClick="{{ n.onClick }}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:none;background:{{ n.bg }};color:{{ n.fg }};font-size:14px;text-align:left;cursor:pointer" style-hover="background:#DED5C5">
+        <span style="display:flex;gap:10px;align-items:center"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:11px;color:#A89C8A">{{ n.no }}</span>{{ n.label }}</span>
+        <sc-if value="{{ n.badge }}"><span style="min-width:20px;padding:1px 6px;background:#B5654A;color:#fff;font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:11px;text-align:center">{{ n.badge }}</span></sc-if>
+      </button>
+    </sc-for>
+  </nav>
+  <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;font-size:11px;color:#A89C8A">
+    <div>示範日期 {{ demoDate }}</div>
+    <button onClick="{{ reset }}" style="padding:6px;border:1px solid #CFC5B3;background:transparent;color:#8C8173;font-size:11px;cursor:pointer">重設全部示範資料</button>
+  </div>
+  </sc-if>
+</aside>
+
+<main style="flex:999 1 600px;min-width:0;padding:48px clamp(18px,4vw,64px) 80px;display:flex;flex-direction:column;gap:36px;max-width:1240px">
+
+<sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+  <header style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:1px solid #8C8173;padding-bottom:20px">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">01 / DASHBOARD</div>
+      <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">今日總覽</h1>
+    </div>
+    <div style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:14px">{{ todayHeader }}</div>
+  </header>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border-top:1px solid #D6CCBA;border-left:1px solid #D6CCBA">
+    <sc-for list="{{ stats }}" as="t" hint-placeholder-count="5">
+      <button onClick="{{ t.onClick }}" style="background:#FBF8F2;border:none;border-right:1px solid #D6CCBA;border-bottom:1px solid #D6CCBA;padding:16px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:8px" style-hover="background:#F5EFE3">
+        <span style="font-size:13px;color:#857A6C">{{ t.label }}</span>
+        <span style="display:flex;align-items:baseline;gap:4px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:46px;font-weight:500;line-height:1;color:{{ t.color }}">{{ t.value }}</span><span style="font-size:13px;color:#857A6C">{{ t.unit }}</span></span>
+      </button>
+    </sc-for>
+  </div>
+  <sc-if value="{{ isStudent }}" hint-placeholder-val="{{ false }}">
+    <section style="background:#FBF8F2;border:1px solid #D6CCBA;padding:20px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+      <div style="flex:1 1 220px;display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:13px;color:#857A6C">我的預約權限</div>
+        <div style="font-size:22px;font-weight:600;color:{{ myStatusColor }}">{{ myStatus }}</div>
+        <div style="font-size:13px;color:#857A6C">無故缺席 <b style="font-family:'Cormorant Garamond','Noto Serif TC',serif;color:#3B3530">{{ myNoShow }} / {{ limit }}</b> 次，達上限將停權至學期末</div>
+      </div>
+      <div style="flex:2 1 300px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:13px;color:#857A6C">我的近期預約</div>
+        <sc-for list="{{ myUpcoming }}" as="b" hint-placeholder-count="2">
+          <div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #E6DDCD;font-size:14px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif">{{ b.when }}</span><span style="padding:2px 8px;font-size:12px;background:{{ b.bg }};color:{{ b.fg }}">{{ b.tag }}</span></div>
+        </sc-for>
+        <sc-if value="{{ myUpcomingEmpty }}"><div style="font-size:14px;color:#857A6C">尚無預約。<a href="#" onClick="{{ goBook }}">前往預約 →</a></div></sc-if>
+      </div>
+    </section>
+  </sc-if>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:32px">
+    <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+      <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;font-weight:600">今日時段</div>
+      <sc-for list="{{ timeline }}" as="tl" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:136px 1fr;border-bottom:1px solid #E6DDCD">
+          <div style="padding:16px 14px;white-space:nowrap;font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:13px;background:{{ tl.bg }};color:{{ tl.fg }}">{{ tl.time }}</div>
+          <div style="padding:14px 18px;display:flex;flex-direction:column;gap:3px">
+            <div style="font-weight:600">{{ tl.title }}</div>
+            <div style="font-size:13px;color:#857A6C">{{ tl.sub }}</div>
+            <div style="font-size:12px;color:#857A6C">負責：{{ tl.who }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </section>
+    <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+      <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600">最後離開者檢查</span><span style="font-size:12px;padding:2px 8px;background:{{ closingBg }};color:{{ closingFg }}">{{ closingLabel }}</span></div>
+      <div style="padding:10px 18px 18px;display:flex;flex-direction:column">
+        <sc-for list="{{ closing }}" as="c" hint-placeholder-count="3">
+          <button onClick="{{ c.onClick }}" style="display:flex;align-items:center;gap:12px;padding:12px 0;border:none;border-bottom:1px solid #E6DDCD;background:transparent;font-size:15px;cursor:pointer;text-align:left;color:#3B3530">
+            <span style="flex:0 0 22px;width:22px;height:22px;border:1px solid #6E6358;border-radius:50%;background:{{ c.box }};color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600">{{ c.mark }}</span>{{ c.label }}
+          </button>
+        </sc-for>
+      </div>
+    </section>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isStaff }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-direction:column;gap:4px">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">02 / STAFF</div>
+    <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">人員編制與職責</h1>
+  </header>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px">
+    <sc-for list="{{ roleCards }}" as="rc" hint-placeholder-count="3">
+      <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+        <div style="background:{{ rc.bg }};color:#fff;padding:16px 18px;display:flex;flex-direction:column;gap:4px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:11px">ROLE {{ rc.no }}</span><span style="font-size:20px;font-weight:600">{{ rc.title }}</span></div>
+        <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{ rc.people }}" as="p"><span style="padding:4px 10px;border:1px solid #D6CCBA;font-weight:600">{{ p.t }}</span></sc-for></div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:1.6"><sc-for list="{{ rc.duties }}" as="d"><div>・{{ d.t }}</div></sc-for></div>
+        </div>
+      </section>
+    </sc-for>
+  </div>
+  <section style="background:#FBF8F2;border:1px solid #D6CCBA">
+    <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;font-weight:600">系統權限對照</div>
+    <div style="overflow-x:auto">
+      <div style="min-width:560px;display:grid;grid-template-columns:1.6fr repeat(4,1fr);font-size:14px">
+        <div style="padding:10px 18px;background:#F3EEE3;font-weight:600">功能</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">學員</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">{{ rt.manager }}</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">{{ rt.trainer }}</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">{{ rt.tutor }}</div>
+        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">自由時段預約</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">確認</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div>
+        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">簽到簽退 / 未到登記</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div>
+        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">固定培訓請假</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">申請</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">審核</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div>
+        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">固定培訓點名</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">負責班</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">負責班</div>
+        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">設備故障回報</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">● 結案</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">● 結案</div>
+        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">後台設定</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">檢視</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div>
+      </div>
+    </div>
+  </section>
+</sc-if>
+
+<sc-if value="{{ isWed }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-direction:column;gap:4px">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">03 / TRAINING</div>
+    <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">{{ trainTitle }}</h1>
+    <div style="font-size:14px;color:#857A6C">{{ trainSub }}</div>
+  </header>
+  <div style="display:flex;gap:4px;overflow-x:auto;padding-bottom:4px">
+    <sc-for list="{{ wedTabs }}" as="w" hint-placeholder-count="9">
+      <button onClick="{{ w.onClick }}" style="flex:0 0 auto;padding:8px 12px;border:1px solid #D6CCBA;background:{{ w.bg }};color:{{ w.fg }};cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px"><span style="font-size:11px">{{ w.week }}</span><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:14px;font-weight:600">{{ w.label }}</span></button>
+    </sc-for>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px">
+    <sc-for list="{{ classes }}" as="k" hint-placeholder-count="2">
+      <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+        <div style="padding:16px 18px;background:{{ k.bg }};color:#fff;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px">{{ k.slot }} · {{ k.time }}</span><span style="font-size:20px;font-weight:600">{{ k.name }}</span><span style="font-size:13px">{{ k.desc }}</span></div>
+          <div style="font-size:13px;text-align:right;white-space:pre-line">{{ k.lead }}</div>
+        </div>
+        <div style="padding:10px 18px;display:flex;justify-content:space-between;font-size:13px;color:#857A6C;border-bottom:1px solid #E6DDCD"><span>{{ k.summary }}</span><span>{{ k.hint }}</span></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:0;border-left:1px solid #E6DDCD">
+          <sc-for list="{{ k.roster }}" as="p" hint-placeholder-count="8">
+            <button onClick="{{ p.onClick }}" style="background:#FBF8F2;border:none;border-right:1px solid #E6DDCD;border-bottom:1px solid #E6DDCD;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:6px;cursor:{{ p.cursor }};font-size:14px;color:#3B3530;text-align:left">{{ p.name }}<span style="padding:2px 6px;font-size:11px;background:{{ p.bg }};color:{{ p.fg }};white-space:nowrap">{{ p.tag }}</span></button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ k.empty }}"><div style="padding:16px 18px;font-size:14px;color:#857A6C">尚未分配學員，請至後台「學員名單」設定。</div></sc-if>
+      </section>
+    </sc-for>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px">
+    <sc-if value="{{ isStudent }}" hint-placeholder-val="{{ false }}">
+      <section style="background:#FBF8F2;border:1px solid #D6CCBA;padding:18px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-weight:600">申請固定培訓請假</div>
+        <div style="font-size:13px;color:#857A6C">需提前向{{ rt.trainer }}（{{ trainerPeople }}）請假。</div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">日期
+          <select value="{{ leaveDate }}" onChange="{{ onLeaveDate }}" style="padding:9px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:14px"><sc-for list="{{ leaveDates }}" as="o"><option value="{{ o.v }}">{{ o.t }}</option></sc-for></select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">原因
+          <input value="{{ leaveReason }}" onChange="{{ onLeaveReason }}" placeholder="例：系上期中考" style="padding:9px;border:1px solid #D6CCBA;font-size:14px">
+        </label>
+        <button onClick="{{ submitLeave }}" style="padding:11px;border:none;background:#B5654A;color:#fff;font-weight:600;font-size:14px;cursor:pointer" style-hover="background:#9A513A">送出請假申請</button>
+      </section>
+    </sc-if>
+    <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+      <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;font-weight:600">{{ leaveTitle }}</div>
+      <sc-for list="{{ leaveList }}" as="l" hint-placeholder-count="2">
+        <div style="padding:12px 18px;border-bottom:1px solid #E6DDCD;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px">
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-weight:600;font-size:14px">{{ l.name }} <span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-weight:400;color:#857A6C">{{ l.date }}</span></span><span style="font-size:13px;color:#857A6C">{{ l.reason }}</span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <sc-if value="{{ l.canAct }}">
+              <button onClick="{{ l.approve }}" style="padding:6px 12px;border:none;background:#3B3530;color:#fff;font-size:13px;cursor:pointer">核准</button>
+              <button onClick="{{ l.reject }}" style="padding:6px 12px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:13px;cursor:pointer">退回</button>
+            </sc-if>
+            <span style="padding:2px 8px;font-size:12px;background:{{ l.bg }};color:{{ l.fg }}">{{ l.tag }}</span>
+          </div>
+        </div>
+      </sc-for>
+      <sc-if value="{{ leaveEmpty }}"><div style="padding:18px;font-size:14px;color:#857A6C">目前沒有請假紀錄。</div></sc-if>
+    </section>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isBook }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">04 / BOOKING</div>
+      <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">自由練習預約</h1>
+      <div style="font-size:14px;color:#857A6C">每時段上限 {{ cap }} 人・預約需經{{ rt.manager }}確認</div>
+    </div>
+    <div style="display:flex;align-items:center;border:1px solid #D6CCBA;background:#FBF8F2">
+      <button onClick="{{ prevWeek }}" style="padding:8px 12px;border:none;border-right:1px solid #D6CCBA;background:transparent;cursor:pointer;font-size:14px">←</button>
+      <span style="padding:8px 14px;font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:13px">{{ weekLabel }}</span>
+      <button onClick="{{ nextWeek }}" style="padding:8px 12px;border:none;border-left:1px solid #D6CCBA;background:transparent;cursor:pointer;font-size:14px">→</button>
+    </div>
+  </header>
+  <sc-if value="{{ meSuspended }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#9A4A3A;color:#fff;padding:14px 18px;font-size:14px">你的無故缺席已達 {{ limit }} 次，自由預約權限暫停至學期結束（{{ semEndLabel }}）。</div>
+  </sc-if>
+  <div style="overflow-x:auto;background:#FBF8F2;border:1px solid #D6CCBA">
+    <div style="min-width:640px;display:flex;flex-direction:column">
+      <div style="display:grid;grid-template-columns:120px repeat(5,minmax(0,1fr));border-bottom:1px solid #D6CCBA">
+        <div style="padding:10px;font-size:12px;color:#857A6C">時段</div>
+        <sc-for list="{{ weekDays }}" as="d" hint-placeholder-count="5">
+          <div style="padding:10px;border-left:1px solid #E6DDCD;display:flex;gap:6px;align-items:baseline;background:{{ d.bg }};color:{{ d.fg }}"><span style="font-weight:600">週{{ d.dow }}</span><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px">{{ d.md }}</span></div>
+        </sc-for>
+      </div>
+      <sc-for list="{{ grid }}" as="row" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:120px repeat(5,minmax(0,1fr));border-bottom:1px solid #E6DDCD">
+          <div style="padding:12px 10px;background:{{ row.rowBg }};display:flex;flex-direction:column;gap:2px"><span style="font-size:13px;font-weight:600">{{ row.name }}</span><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:14px">{{ row.start }}–{{ row.end }}</span><span style="font-size:11px;color:#B5654A">{{ row.slogan }}</span></div>
+          <sc-for list="{{ row.cells }}" as="c" hint-placeholder-count="5">
+            <button onClick="{{ c.onClick }}" style="border:none;border-left:1px solid #E6DDCD;padding:10px 12px;min-height:76px;background:{{ c.bg }};cursor:{{ c.cursor }};display:flex;flex-direction:column;justify-content:space-between;gap:8px;text-align:left;color:#3B3530;outline:{{ c.outline }};outline-offset:-3px">
+              <span style="display:flex;justify-content:space-between;align-items:baseline;gap:4px;width:100%"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:20px;font-weight:600;color:{{ c.numColor }}">{{ c.num }}</span><span style="font-size:11px;color:{{ c.tagColor }};font-weight:600">{{ c.tag }}</span></span>
+              <span style="display:block;width:100%;height:6px;background:#E6DDCD"><span style="display:block;height:6px;width:{{ c.fill }};background:{{ c.barColor }}"></span></span>
+              <span style="font-size:11px;color:#857A6C">{{ c.sub }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-for>
+      <sc-if value="{{ gridEmpty }}"><div style="padding:20px;font-size:14px;color:#857A6C">尚未設定自由練習時段，請至後台「自由時段」新增。</div></sc-if>
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:18px;font-size:12px;color:#857A6C">
+    <span style="display:flex;gap:6px;align-items:center"><span style="width:12px;height:12px;background:#3B3530"></span>已預約人數</span>
+    <span style="display:flex;gap:6px;align-items:center"><span style="width:12px;height:12px;background:#B5654A"></span>額滿</span>
+    <span style="display:flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border:2px solid #B5654A"></span>我的預約</span>
+    <span>點選時段查看名單{{ bookHint }}</span>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isCheck }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-direction:column;gap:4px">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">05 / CHECK-IN</div>
+    <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">簽到簽退</h1>
+    <div style="font-size:14px;color:#857A6C">今日自由練習・在場 {{ presentCount }} 人</div>
+  </header>
+  <sc-if value="{{ notManager }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#FBF8F2;border:1px dashed #B8AC98;padding:14px 18px;font-size:14px">簽到簽退由當值{{ rt.manager }}操作。學員進入人培室前請先找{{ rt.manager }}簽到。</div>
+  </sc-if>
+  <section style="background:#FBF8F2;border:1px solid #D6CCBA">
+    <sc-for list="{{ todayRows }}" as="r" hint-placeholder-count="5">
+      <div style="padding:14px 18px;border-bottom:1px solid #E6DDCD;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span style="width:36px;height:36px;background:#F3EEE3;display:grid;place-items:center;font-weight:600">{{ r.initial }}</span>
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-weight:600">{{ r.name }}</span><span style="font-size:12px;color:#857A6C;font-family:'Cormorant Garamond','Noto Serif TC',serif">{{ r.meta }}</span></div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <sc-if value="{{ r.showConfirm }}"><button onClick="{{ r.confirm }}" style="padding:7px 14px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:13px;cursor:pointer">確認預約</button></sc-if>
+          <sc-if value="{{ r.showIn }}"><button onClick="{{ r.checkin }}" style="padding:7px 14px;border:none;background:#3B3530;color:#fff;font-size:13px;cursor:pointer">簽到</button><button onClick="{{ r.noshow }}" style="padding:7px 14px;border:1px solid #9A4A3A;background:#FBF8F2;color:#9A4A3A;font-size:13px;cursor:pointer">登記未到</button></sc-if>
+          <sc-if value="{{ r.showOut }}"><button onClick="{{ r.checkout }}" style="padding:7px 14px;border:none;background:#B5654A;color:#fff;font-size:13px;cursor:pointer">簽退檢查</button></sc-if>
+          <span style="padding:3px 8px;font-size:12px;background:{{ r.bg }};color:{{ r.fg }}">{{ r.tag }}</span>
+        </div>
+      </div>
+    </sc-for>
+    <sc-if value="{{ todayEmpty }}"><div style="padding:18px;color:#857A6C;font-size:14px">今日無預約。</div></sc-if>
+  </section>
+</sc-if>
+
+<sc-if value="{{ isEquip }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-direction:column;gap:4px">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">06 / EQUIPMENT</div>
+    <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">設備與耗材</h1>
+    <div style="font-size:14px;color:#857A6C">使用前確認設備狀態，故障立即回報；耗材依規定取用並登記。</div>
+  </header>
+  <section style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:0;border-top:1px solid #D6CCBA;border-left:1px solid #D6CCBA">
+    <sc-for list="{{ equipment }}" as="e" hint-placeholder-count="13">
+      <div style="background:{{ e.bg }};border-right:1px solid #D6CCBA;border-bottom:1px solid #D6CCBA;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:15px;font-weight:600;color:{{ e.fg }}">{{ e.code }}</span>
+        <span style="font-size:12px;color:{{ e.sub }}">{{ e.type }}</span>
+        <span style="font-size:12px;font-weight:600;color:{{ e.fg }}">{{ e.tag }}</span>
+      </div>
+    </sc-for>
+  </section>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px">
+    <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+      <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;font-weight:600">故障回報</div>
+      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #D6CCBA">
+        <select value="{{ faultEq }}" onChange="{{ onFaultEq }}" style="padding:9px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:14px"><sc-for list="{{ equipOptions }}" as="o"><option value="{{ o.v }}">{{ o.t }}</option></sc-for></select>
+        <input value="{{ faultDesc }}" onChange="{{ onFaultDesc }}" placeholder="描述狀況，例：列印平台無法歸零" style="padding:9px;border:1px solid #D6CCBA;font-size:14px">
+        <button onClick="{{ submitFault }}" style="padding:10px;border:none;background:#9A4A3A;color:#fff;font-weight:600;font-size:14px;cursor:pointer">回報故障</button>
+      </div>
+      <sc-for list="{{ faults }}" as="f" hint-placeholder-count="2">
+        <div style="padding:12px 18px;border-bottom:1px solid #E6DDCD;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:14px"><b style="font-family:'Cormorant Garamond','Noto Serif TC',serif">{{ f.code }}</b>　{{ f.desc }}</span><span style="font-size:12px;color:#857A6C">{{ f.by }} · {{ f.time }}</span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <sc-if value="{{ f.canResolve }}"><button onClick="{{ f.resolve }}" style="padding:6px 12px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:12px;cursor:pointer">標記已修復</button></sc-if>
+            <span style="padding:2px 8px;font-size:12px;background:{{ f.bg }};color:{{ f.fg }}">{{ f.tag }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </section>
+    <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+      <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;font-weight:600">耗材庫存與消耗登記</div>
+      <sc-for list="{{ consumables }}" as="m" hint-placeholder-count="3">
+        <div style="padding:12px 18px;border-bottom:1px solid #E6DDCD;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span style="font-weight:600;font-size:14px">{{ m.name }}</span><span style="display:flex;gap:8px;align-items:baseline"><sc-if value="{{ m.low }}"><span style="font-size:11px;padding:1px 6px;background:#F1DDD5;color:#9A4A3A">低於安全量</span></sc-if><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:16px;font-weight:600">{{ m.stock }}</span><span style="font-size:12px;color:#857A6C">{{ m.unit }}</span></span></div>
+          <div style="height:6px;background:#E6DDCD"><div style="height:6px;width:{{ m.fill }};background:{{ m.bar }}"></div></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#857A6C"><span>安全量 {{ m.min }} {{ m.unit }}</span><sc-if value="{{ m.canRestock }}"><button onClick="{{ m.restock }}" style="border:none;background:transparent;color:#B5654A;font-size:12px;cursor:pointer;padding:0">＋ 補貨 {{ m.stepLabel }}</button></sc-if></div>
+        </div>
+      </sc-for>
+      <div style="padding:14px 18px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #D6CCBA;background:#F6F1E7">
+        <select value="{{ useItem }}" onChange="{{ onUseItem }}" style="flex:2 1 120px;padding:9px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:14px"><sc-for list="{{ consumeOptions }}" as="o"><option value="{{ o.v }}">{{ o.t }}</option></sc-for></select>
+        <input type="number" min="1" value="{{ useQty }}" onChange="{{ onUseQty }}" style="flex:1 1 60px;width:60px;padding:9px;border:1px solid #D6CCBA;font-size:14px">
+        <button onClick="{{ submitUse }}" style="flex:1 1 90px;padding:9px;border:none;background:#3B3530;color:#fff;font-size:14px;cursor:pointer">登記取用</button>
+      </div>
+      <div style="padding:10px 18px 4px;font-size:12px;color:#857A6C">近期消耗紀錄</div>
+      <sc-for list="{{ useLog }}" as="u" hint-placeholder-count="4">
+        <div style="padding:8px 18px;display:flex;justify-content:space-between;font-size:13px;border-top:1px solid #EEE7DA"><span>{{ u.who }}　{{ u.item }} × {{ u.qty }}</span><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;color:#857A6C">{{ u.time }}</span></div>
+      </sc-for>
+    </section>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isRecord }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-direction:column;gap:4px">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">07 / RECORDS</div>
+    <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">考核與缺席紀錄</h1>
+    <div style="font-size:14px;color:#857A6C">自由時段預約後無故缺席達 {{ limit }} 次，暫停自由預約權限至學期結束。</div>
+  </header>
+  <section style="background:#FBF8F2;border:1px solid #D6CCBA;overflow-x:auto">
+    <div style="min-width:620px;display:flex;flex-direction:column">
+      <div style="display:grid;grid-template-columns:1.4fr .8fr 1fr 1fr 1.6fr 1.4fr;background:#F3EEE3;font-size:13px;font-weight:600">
+        <div style="padding:10px 18px">學員</div><div style="padding:10px">班別</div><div style="padding:10px">自由練習完成</div><div style="padding:10px">培訓請假</div><div style="padding:10px">無故缺席</div><div style="padding:10px">預約權限</div>
+      </div>
+      <sc-for list="{{ records }}" as="x" hint-placeholder-count="16">
+        <div style="display:grid;grid-template-columns:1.4fr .8fr 1fr 1fr 1.6fr 1.4fr;border-top:1px solid #E6DDCD;font-size:14px;align-items:center">
+          <div style="padding:10px 18px;font-weight:600">{{ x.name }}</div>
+          <div style="padding:10px;color:#857A6C">{{ x.group }}</div>
+          <div style="padding:10px;font-family:'Cormorant Garamond','Noto Serif TC',serif">{{ x.done }}</div>
+          <div style="padding:10px;font-family:'Cormorant Garamond','Noto Serif TC',serif">{{ x.leaves }}</div>
+          <div style="padding:10px;display:flex;gap:3px;align-items:center;flex-wrap:wrap"><sc-for list="{{ x.dots }}" as="dt"><span style="width:14px;height:14px;background:{{ dt.bg }};border:1px solid #D6CCBA"></span></sc-for><span style="margin-left:6px;font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px">{{ x.ns }}</span></div>
+          <div style="padding:10px"><span style="padding:2px 8px;font-size:12px;background:{{ x.bg }};color:{{ x.fg }}">{{ x.tag }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</sc-if>
+
+<sc-if value="{{ isRules }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-direction:column;gap:4px">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">08 / RULES</div>
+    <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">{{ cfg.rulesTitle }}</h1>
+  </header>
+  <div style="display:flex;flex-direction:column;border-top:1px solid #D6CCBA;border-left:1px solid #D6CCBA;border-right:1px solid #D6CCBA;max-width:860px">
+    <sc-for list="{{ rulesView }}" as="ru" hint-placeholder-count="4">
+      <section style="background:#FBF8F2;padding:20px 22px;display:grid;grid-template-columns:48px 1fr;gap:12px;border-bottom:1px solid #D6CCBA"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:22px;color:#B5654A;font-weight:600">{{ ru.num }}</span><div style="display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.7"><b style="font-size:17px">{{ ru.title }}</b><sc-for list="{{ ru.lines }}" as="ln"><div>{{ ln.t }}</div></sc-for></div></section>
+    </sc-for>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isAdmin }}" hint-placeholder-val="{{ false }}">
+  <header style="border-bottom:1px solid #8C8173;padding-bottom:20px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-style:italic;letter-spacing:.2em;color:#B5654A">09 / ADMIN</div>
+      <h1 style="margin:0;font-size:34px;font-weight:500;letter-spacing:.14em">後台設定</h1>
+      <div style="font-size:14px;color:#857A6C">{{ adminSubtitle }}</div>
+    </div>
+    <sc-if value="{{ canResetCfg }}" hint-placeholder-val="{{ true }}"><button onClick="{{ resetCfg }}" style="padding:8px 14px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:13px;cursor:pointer">還原預設設定</button></sc-if>
+  </header>
+  <sc-if value="{{ studentRONotice }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#FBF8F2;border:1px dashed #B8AC98;padding:14px 18px;font-size:14px">此頁籤學員僅可檢視。請切至「自由編排時段」編排時程，或切換為管理人員、培訓專員或輔導員以編輯其餘設定。</div>
+  </sc-if>
+  <sc-if value="{{ studentEditNotice }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#F3E6CF;border:1px solid #D8C49A;padding:14px 18px;font-size:14px;color:#8A6A3A">⚠ 時段定義是全體共用的設定，你的修改會影響所有人的預約表。已有預約紀錄的時段無法刪除。</div>
+  </sc-if>
+  <div style="display:flex;flex-wrap:wrap;gap:0;border-top:1px solid #D6CCBA;border-left:1px solid #D6CCBA;align-self:flex-start">
+    <sc-for list="{{ adminTabs }}" as="at" hint-placeholder-count="9">
+      <button onClick="{{ at.onClick }}" style="padding:10px 14px;border:none;border-right:1px solid #D6CCBA;border-bottom:1px solid #D6CCBA;background:{{ at.bg }};color:{{ at.fg }};font-size:14px;cursor:pointer">{{ at.label }}</button>
+    </sc-for>
+  </div>
+  <sc-for list="{{ adminBlocks }}" as="blk" hint-placeholder-count="1">
+    <section style="background:#FBF8F2;border:1px solid #D6CCBA;display:flex;flex-direction:column">
+      <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
+        <div style="display:flex;flex-direction:column;gap:2px"><span style="font-weight:600">{{ blk.title }}</span><span style="font-size:12px;color:#857A6C">{{ blk.hint }}</span></div>
+        <sc-if value="{{ blk.hasAdd }}"><button onClick="{{ blk.onAdd }}" style="padding:7px 14px;border:none;background:#B5654A;color:#fff;font-size:13px;font-weight:600;cursor:pointer" style-hover="background:#9A513A">＋ {{ blk.addLabel }}</button></sc-if>
+      </div>
+      <sc-for list="{{ blk.rows }}" as="row" hint-placeholder-count="3">
+        <div style="padding:12px 18px;border-bottom:1px solid #E6DDCD;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <sc-if value="{{ row.num }}"><span style="flex:0 0 28px;padding-bottom:9px;font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px;color:#8C8173">{{ row.num }}</span></sc-if>
+          <sc-for list="{{ row.fields }}" as="f">
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#857A6C;flex:{{ f.flex }};min-width:0">{{ f.label }}
+              <sc-if value="{{ f.isInput }}"><input type="{{ f.type }}" value="{{ f.value }}" onChange="{{ f.onChange }}" disabled="{{ f.ro }}" style="width:100%;padding:8px 10px;border:1px solid #D6CCBA;font-size:14px;color:#3B3530;background:#FBF8F2"></sc-if>
+              <sc-if value="{{ f.isSelect }}"><select value="{{ f.value }}" onChange="{{ f.onChange }}" disabled="{{ f.ro }}" style="width:100%;padding:8px 10px;border:1px solid #D6CCBA;font-size:14px;color:#3B3530;background:#FBF8F2"><sc-for list="{{ f.options }}" as="o"><option value="{{ o.v }}">{{ o.t }}</option></sc-for></select></sc-if>
+              <sc-if value="{{ f.isArea }}"><textarea rows="{{ f.rows }}" value="{{ f.value }}" onChange="{{ f.onChange }}" disabled="{{ f.ro }}" style="width:100%;padding:8px 10px;border:1px solid #D6CCBA;font-size:14px;line-height:1.6;color:#3B3530;background:#FBF8F2;resize:vertical"></textarea></sc-if>
+            </label>
+          </sc-for>
+          <sc-if value="{{ row.canDelete }}"><button onClick="{{ row.onDelete }}" style="padding:8px 12px;border:1px solid #9A4A3A;background:#FBF8F2;color:#9A4A3A;font-size:13px;cursor:pointer">刪除</button></sc-if>
+        </div>
+      </sc-for>
+      <sc-if value="{{ blk.empty }}"><div style="padding:16px 18px;font-size:14px;color:#857A6C">尚無資料。</div></sc-if>
+    </section>
+  </sc-for>
+</sc-if>
+</main>
+
+<sc-if value="{{ slotOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeSlot }}" style="position:fixed;inset:0;background:rgba(59,53,48,.35);z-index:20"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);background:#FBF8F2;border-left:1px solid #8C8173;z-index:21;display:flex;flex-direction:column">
+    <div style="padding:18px 20px;border-bottom:1px solid #D6CCBA;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px;color:#857A6C">{{ slotTitleSub }}</span><span style="font-size:20px;font-weight:600">{{ slotTitle }}</span><span style="font-size:13px;color:#857A6C">已預約 {{ slotCount }} / {{ cap }} 人</span></div>
+      <button onClick="{{ closeSlot }}" style="border:1px solid #D6CCBA;background:#FBF8F2;width:32px;height:32px;cursor:pointer;font-size:16px">×</button>
+    </div>
+    <div style="flex:1;overflow:auto">
+      <sc-for list="{{ slotRows }}" as="b" hint-placeholder-count="3">
+        <div style="padding:12px 20px;border-bottom:1px solid #E6DDCD;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:500">{{ b.name }}</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <sc-if value="{{ b.canConfirm }}"><button onClick="{{ b.confirm }}" style="padding:5px 10px;border:none;background:#3B3530;color:#fff;font-size:12px;cursor:pointer">確認</button><button onClick="{{ b.reject }}" style="padding:5px 10px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:12px;cursor:pointer">婉拒</button></sc-if>
+            <span style="padding:2px 8px;font-size:12px;background:{{ b.bg }};color:{{ b.fg }}">{{ b.tag }}</span>
+          </div>
+        </div>
+      </sc-for>
+      <sc-if value="{{ slotEmpty }}"><div style="padding:20px;color:#857A6C;font-size:14px">此時段尚無預約。</div></sc-if>
+    </div>
+    <sc-if value="{{ isStudent }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:16px 20px;border-top:1px solid #D6CCBA;display:flex;flex-direction:column;gap:8px">
+        <sc-if value="{{ slotNote }}"><div style="font-size:13px;color:#9A4A3A">{{ slotNote }}</div></sc-if>
+        <sc-if value="{{ slotCanBook }}"><button onClick="{{ bookSlot }}" style="padding:12px;border:none;background:#B5654A;color:#fff;font-weight:600;font-size:15px;cursor:pointer" style-hover="background:#9A513A">預約此時段</button></sc-if>
+        <sc-if value="{{ slotCanCancel }}"><button onClick="{{ cancelSlot }}" style="padding:12px;border:1px solid #D6CCBA;background:#FBF8F2;font-weight:600;font-size:15px;cursor:pointer">取消我的預約</button></sc-if>
+      </div>
+    </sc-if>
+  </div>
+</sc-if>
+
+<sc-if value="{{ checkoutOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(59,53,48,.45);z-index:30;display:grid;place-items:center;padding:16px">
+    <div style="width:min(440px,100%);background:#FBF8F2;border:1px solid #8C8173;display:flex;flex-direction:column">
+      <div style="padding:18px 20px;border-bottom:1px solid #D6CCBA;display:flex;flex-direction:column;gap:4px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px;color:#857A6C">CHECK-OUT</span><span style="font-size:20px;font-weight:600">{{ checkoutName }} 簽退檢查</span></div>
+      <div style="padding:8px 20px">
+        <sc-for list="{{ checkItems }}" as="c" hint-placeholder-count="3">
+          <button onClick="{{ c.onClick }}" style="width:100%;display:flex;align-items:center;gap:12px;padding:14px 0;border:none;border-bottom:1px solid #E6DDCD;background:transparent;font-size:15px;cursor:pointer;text-align:left;color:#3B3530">
+            <span style="flex:0 0 22px;width:22px;height:22px;border:1px solid #6E6358;border-radius:50%;background:{{ c.box }};color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600">{{ c.mark }}</span>{{ c.label }}
+          </button>
+        </sc-for>
+      </div>
+      <div style="padding:16px 20px;display:flex;gap:8px;justify-content:flex-end">
+        <button onClick="{{ closeCheckout }}" style="padding:10px 16px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:14px;cursor:pointer">取消</button>
+        <button onClick="{{ doCheckout }}" disabled="{{ checkoutBlocked }}" style="padding:10px 16px;border:none;background:{{ checkoutBtnBg }};color:#fff;font-size:14px;font-weight:600;cursor:pointer">完成簽退</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#3B3530;color:#fff;padding:12px 20px;font-size:14px;z-index:40;animation:toastIn .2s ease-out;border-bottom:3px solid #B5654A">{{ toast }}</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const KEY = 'lab3d-mgmt-v2';
+const TODAY = '2026-09-30';
+const DOW = ['日','一','二','三','四','五','六'];
+const EDOW = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const NUMS = ['一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
+const COLORS = ['#B5654A','#3B3530','#6B7A5A','#4A5A6E'];
+const T = {
+  pending:{t:'待確認',bg:'#F3E6CF',fg:'#8A6A3A'}, confirmed:{t:'已確認',bg:'#E2E6EA',fg:'#4A5A6E'},
+  checkedin:{t:'在場中',bg:'#E3E8D8',fg:'#4F6140'}, done:{t:'已簽退',bg:'#ECE6DA',fg:'#6B7A5A'},
+  noshow:{t:'無故未到',bg:'#F1DDD5',fg:'#9A4A3A'}, approved:{t:'已核准',bg:'#E3E8D8',fg:'#4F6140'},
+  rejected:{t:'已退回',bg:'#ECE6DA',fg:'#6B7A5A'}, open:{t:'待處理',bg:'#F1DDD5',fg:'#9A4A3A'}, fixed:{t:'已修復',bg:'#E3E8D8',fg:'#4F6140'}
+};
+const pad = n => String(n).padStart(2,'0');
+const fmt = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const parse = s => { const [y,m,d]=String(s||TODAY).split('-').map(Number); return new Date(y,(m||1)-1,d||1); };
+const add = (s,n) => { const d=parse(s); d.setDate(d.getDate()+n); return fmt(d); };
+const md = s => { const d=parse(s); return (d.getMonth()+1)+'/'+d.getDate(); };
+const md2 = s => { const d=parse(s); return pad(d.getMonth()+1)+'/'+pad(d.getDate()); };
+const dow = s => parse(s).getDay();
+const diffDays = (a,b) => Math.round((parse(b)-parse(a))/86400000);
+const mondayOf = s => add(s, dow(s)===0 ? -6 : 1-dow(s));
+const now = () => { const d=new Date(); return md2(TODAY)+' '+pad(d.getHours())+':'+pad(d.getMinutes()); };
+const uid = () => Math.random().toString(36).slice(2,8);
+const lines = s => String(s||'').split('\n').map(x=>x.trim()).filter(Boolean);
+const people = s => String(s||'').split(/[、,，]/).map(x=>x.trim()).filter(Boolean);
+// an interval is only meaningful when start < end; cross-midnight / inverted ranges are treated as invalid
+const valid = x => !!x && String(x.start) < String(x.end);
+const overlap = (a,b) => valid(a) && valid(b) && a.start < b.end && b.start < a.end;
+const isOpen = sl => sl.open !== 'no' && valid(sl);
+
+function seedCfg(){
+  return {
+    labBadge:'3D', labName:'人培室管理', labSub:'TRAINING LAB · 115-1', rulesTitle:'3D 人培室規劃與管理辦法',
+    semStart:'2026-09-14', semEnd:'2026-11-13', trainDay:3, capacity:8, noShowLimit:3,
+    roles:[
+      {key:'trainer',title:'培訓專員',people:'小赫',duties:'整體課程規劃\n教學進度掌控\n學員培訓成果評估'},
+      {key:'tutor',title:'培訓輔導員',people:'周子耘、王柏凱',duties:'現場實作指導\n學員疑難解答\n設備操作示範與基礎維護'},
+      {key:'manager',title:'管理人員',people:'研究生（值班）',duties:'教室借用登記\n設備耗材盤點\n環境安全維護與緊急狀況回報'}
+    ],
+    classes:[
+      {id:'A',code:'A 時段',start:'14:00',end:'16:00',name:'前段班',desc:'核心課程 / 基礎培訓',leadRole:'trainer'},
+      {id:'B',code:'B 時段',start:'16:00',end:'18:00',name:'後段班',desc:'實作練習 / 進階輔導',leadRole:'tutor'}
+    ],
+    slotsV2:true,
+    slots:[['p1','第1節','08:10','09:00','自由時間','隨心時刻','yes'],['p2','第2節','09:10','10:00','自由時間','隨心時刻','yes'],['p3','第3節','10:10','11:00','自由時間','隨心時刻','yes'],['p4','第4節','11:10','12:00','自由時間','隨心時刻','yes'],
+      ['p5','第5節','12:50','13:40','休息時間','隨心時刻','no'],['p6','第6節','13:50','14:40','自由時間','隨心時刻','yes'],['p7','第7節','14:50','15:40','自由時間','隨心時刻','yes'],['p8','第8節','15:50','16:40','自由時間','隨心時刻','yes'],['p9','第9節','16:50','17:40','自由時間','隨心時刻','yes'],
+      ['p10','第中節','17:50','18:20','吃飯時間','滿足這一刻','no'],['p11','第11節','18:30','19:30','緩衝時間','解題大冒險','yes'],['p12','第12節','19:30','20:30','訓練時間','能力修練戰','yes'],['p13','第13節','20:30','21:30','訓練時間','能力修練戰','yes'],
+      ['p14','夜間','21:00','10:00','自由時間','回家睡覺','no']].map(([id,name,start,end,note,slogan,open])=>({id,name,start,end,note,slogan,open})),
+    students:[['A1','林品妤'],['A2','陳冠宇'],['A3','黃詩涵'],['A4','張家豪'],['A5','李欣怡'],['A6','吳承恩'],['A7','劉宜蓁'],['A8','蔡明哲'],
+      ['B1','楊子晴'],['B2','許育誠'],['B3','鄭雅婷'],['B4','謝孟軒'],['B5','郭佩珊'],['B6','洪浩然'],['B7','曾若瑜'],['B8','邱柏宇']].map(([id,name])=>({id,name,group:id[0]})),
+    equipment:[['P1','3D 印表機'],['P2','3D 印表機'],['P3','3D 印表機'],['P4','3D 印表機'],['CNC','CNC 雕刻機'],['PC01','電腦'],['PC02','電腦'],['PC03','電腦'],['PC04','電腦'],['PC05','電腦'],['PC06','電腦'],['PC07','電腦'],['PC08','電腦']].map(([code,type])=>({key:code,code,type})),
+    consumables:[{id:'pla',name:'PLA 絲材',unit:'捲',stock:14,min:5,max:24,step:6},{id:'cut',name:'切削料件',unit:'塊',stock:26,min:10,max:40,step:10},{id:'nozzle',name:'備用噴頭',unit:'個',stock:3,min:4,max:10,step:5}],
+    checkoutItems:'設備已復原（關機、歸位、清除列印平台）\n環境已清潔（桌面、廢料、垃圾帶走）\n耗材已登記或未取用',
+    closingItems:'電源已關閉\n空調已關閉\n門窗已上鎖',
+    rules:[
+      {id:'r1',title:'人員編制與職責',body:'培訓專員（小赫）：整體課程規劃、教學進度掌控、學員培訓成果評估。\n培訓輔導員（周子耘、王柏凱）：現場實作指導、學員疑難解答、設備操作示範與基礎維護。\n管理人員（研究生）：教室借用登記、設備耗材盤點、環境安全維護與緊急狀況回報。'},
+      {id:'r2',title:'半學期固定培訓時段',body:'每週三，採 8 人一組。\nA 時段 14:00–16:00・培訓專員（小赫）・前段班（核心課程 / 基礎培訓）\nB 時段 16:00–18:00・培訓輔導員（子耘、柏凱）・後段班（實作練習 / 進階輔導）'},
+      {id:'r3',title:'自由練習時段管理規範',body:'週三固定培訓以外的開放時間採預約制。\n人數上限：每一時段最高 8 人。\n預約方式：需提前於本系統登記，並經管理人員（研究生）確認。\n簽到簽退：進入前需找當值管理人員簽到，離開前需完成設備復原與環境清潔檢查。'},
+      {id:'r4',title:'設備與空間使用規範',body:'設備維護：電腦設備使用前需確認狀態，如有故障需立即回報管理人員記錄；耗材（PLA 絲材、切削料件等）依規定取用並填寫消耗登記。\n環境安全：可攜帶食物但垃圾請帶走；未加蓋飲料不得進入設備區。最後離開者需確認電源、空調及門窗均已關閉。\n考核與請假：無法參加週三固定培訓需提前向培訓專員（小赫）請假；自由時段預約後無故缺席達 3 次，暫停自由預約權限至學期結束。'}
+    ]
+  };
+}
+function seedData(){
+  let id=1; const b=(sid,date,slot,status)=>({id:id++,sid,date,slot,status});
+  return {
+    role:'manager', me:'A1', page:'dash', nextId:100, attendance:{}, closing:{},
+    bookings:[
+      b('A8','2026-09-14','p6','noshow'), b('B8','2026-09-15','p2','noshow'), b('B8','2026-09-22','p9','noshow'),
+      b('A1','2026-09-21','p2','done'), b('A3','2026-09-21','p2','done'), b('B2','2026-09-24','p6','done'),
+      b('A2','2026-09-28','p6','done'), b('B1','2026-09-28','p6','done'), b('A8','2026-09-28','p6','noshow'),
+      b('A4','2026-09-29','p9','done'), b('B8','2026-09-29','p9','noshow'), b('B4','2026-09-29','p9','done'),
+      b('A1',TODAY,'p2','checkedin'), b('A6',TODAY,'p2','done'), b('A3',TODAY,'p2','confirmed'), b('B2',TODAY,'p2','confirmed'), b('B5',TODAY,'p2','pending'),
+      b('A1','2026-10-01','p6','pending'), b('A2','2026-10-01','p6','confirmed'), b('B3','2026-10-01','p6','pending'), b('B4','2026-10-01','p6','confirmed'),
+      b('B6','2026-10-01','p6','confirmed'), b('A5','2026-10-01','p6','confirmed'), b('A7','2026-10-01','p6','confirmed'),
+      b('B7','2026-10-02','p2','pending'), b('A4','2026-10-02','p9','confirmed'), b('B1','2026-10-05','p2','pending')
+    ],
+    leaves:[{id:1,sid:'B3',date:TODAY,reason:'身體不適',status:'approved'},{id:2,sid:'A4',date:'2026-10-07',reason:'系上期中考',status:'pending'},{id:3,sid:'A2',date:'2026-09-23',reason:'家中有事',status:'approved'}],
+    faults:[{id:1,eq:'P3',desc:'噴頭堵塞，出料不順',by:'張家豪',time:'09/29 16:40',status:'open'},{id:2,eq:'PC06',desc:'開機後螢幕無訊號',by:'值班研究生',time:'09/30 09:12',status:'open'},{id:3,eq:'P1',desc:'平台調平偏移',by:'王柏凱',time:'09/24 17:05',status:'fixed'}],
+    useLog:[{who:'林品妤',item:'pla',qty:1,time:'09/30 09:20'},{who:'吳承恩',item:'cut',qty:2,time:'09/30 09:05'},{who:'王柏凱',item:'nozzle',qty:1,time:'09/29 17:30'}],
+    cfg:seedCfg()
+  };
+}
+const DATA_KEYS = ['role','me','page','bookings','nextId','leaves','attendance','faults','useLog','closing','cfg'];
+// cfg lists a student is allowed to edit in 後台設定 'shared settings, so the tab carries a warning'
+const STUDENT_LISTS = ['slots'];
+const STUDENT_TABS = ['slots'];
+// transient (non-persisted) UI state - shared by first load and 「重設全部示範資料」
+const LEGACY_SLOTS = {s1:'p2',s2:'p6',s3:'p9'};
+function freshUI(){ return {week:0, wedDate:'', slotSel:null, checkoutId:null, checks:{}, toast:'',
+  adminTab:'basic', leaveDate:'', leaveReason:'', faultEq:'', faultDesc:'', useItem:'', useQty:1}; }
+
+class Component extends DCLogic {
+  state = (() => {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch(e) {}
+    const base = seedData();
+    if(saved.cfg && !saved.cfg.slotsV2) delete saved.cfg.slots;
+    // one-shot heal of pre-v2 slot ids; persisted by componentDidUpdate so it never has to run again
+    if(Array.isArray(saved.bookings)) saved.bookings=saved.bookings.map(b=>LEGACY_SLOTS[b.slot]?{...b,slot:LEGACY_SLOTS[b.slot]}:b);
+    return Object.assign(base, saved, {cfg:Object.assign(seedCfg(), saved.cfg||{})}, freshUI());
+  })();
+  componentDidMount(){ this._rs=()=>{const n=window.innerWidth<840; if(n!==this.state.narrow) this.setState({narrow:n,menuOpen:false});}; this._rs(); window.addEventListener('resize',this._rs); }
+  componentWillUnmount(){ window.removeEventListener('resize',this._rs); }
+  componentDidUpdate(){ const o={}; DATA_KEYS.forEach(k=>o[k]=this.state[k]); try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){} }
+  flash(t){ this.setState({toast:t}); clearTimeout(this._t); this._t=setTimeout(()=>this.setState({toast:''}),2200); }
+  setB(id, status, msg){ this.setState(s=>({bookings:s.bookings.map(b=>b.id===id?{...b,status}:b)})); if(msg) this.flash(msg); }
+  setCfg(fn){ this.setState(s=>({cfg:fn(s.cfg)})); }
+
+  renderVals(){
+    const s=this.state, cfg=s.cfg, cap=Number(cfg.capacity)||1, limit=Math.max(1,Number(cfg.noShowLimit)||1), TD=Number(cfg.trainDay);
+    const role=s.role, isStudent=role==='student', isMgr=role==='manager', isTrainer=role==='trainer', isTutor=role==='tutor', canEdit=!isStudent;
+    const STU=cfg.students, SLOTS=cfg.slots.slice().sort((a,b)=>a.start.localeCompare(b.start)), CLS=cfg.classes.slice().sort((a,b)=>a.start.localeCompare(b.start));
+    const roleOf=k=>cfg.roles.find(r=>r.key===k)||{title:k,people:''};
+    const rt={trainer:roleOf('trainer').title,tutor:roleOf('tutor').title,manager:roleOf('manager').title};
+    const stuIds=new Set(STU.map(x=>x.id)), slotIds=new Set(SLOTS.map(x=>x.id));
+    const bookings=s.bookings.filter(b=>stuIds.has(b.sid)&&slotIds.has(b.slot));
+    const name=id=>(STU.find(x=>x.id===id)||{}).name||id;
+    const clsOf=id=>CLS.find(c=>c.id===id);
+    const ns=id=>bookings.filter(b=>b.sid===id&&b.status==='noshow').length;
+    const susp=id=>ns(id)>=limit;
+    const live=b=>['pending','confirmed','checkedin','done'].includes(b.status);
+    const count=(d,sl)=>bookings.filter(b=>b.date===d&&b.slot===sl&&live(b)).length;
+    const clashes=(d,sl)=>dow(d)===TD?CLS.filter(c=>overlap(sl,c)):[];
+    const slotById=id=>SLOTS.find(x=>x.id===id)||{start:'',end:''};
+    const me=stuIds.has(s.me)?s.me:(STU[0]||{}).id;
+    const currentName=isStudent?name(me):isMgr?roleOf('manager').people:isTrainer?roleOf('trainer').people:roleOf('tutor').people;
+    const go=p=>()=>{this.setState({page:p,slotSel:null,menuOpen:false}); if(s.narrow) window.scrollTo(0,0);};
+    const tag=k=>({tag:T[k].t,bg:T[k].bg,fg:T[k].fg});
+    const eqByKey=k=>cfg.equipment.find(e=>e.key===k);
+
+    const pendingAll=bookings.filter(b=>b.status==='pending'&&b.date>=TODAY).length;
+    const faultsLive=s.faults.filter(f=>eqByKey(f.eq));
+    const openFaults=faultsLive.filter(f=>f.status==='open').length;
+    const pendingLeaves=s.leaves.filter(l=>l.status==='pending'&&stuIds.has(l.sid)).length;
+    const lowStock=cfg.consumables.filter(c=>Number(c.stock)<Number(c.min)).length;
+    const todayB=bookings.filter(b=>b.date===TODAY);
+    const present=todayB.filter(b=>b.status==='checkedin').length;
+    const todayOpen=todayB.filter(b=>['pending','confirmed','checkedin'].includes(b.status)).length;
+    const trainName='週'+DOW[TD]+'固定培訓';
+
+    const NAV=[['dash','今日總覽',''],['staff','人員編制',''],['wed',trainName,isTrainer&&pendingLeaves?pendingLeaves:''],['book','自由預約',isMgr&&pendingAll?pendingAll:''],
+      ['check','簽到簽退',isMgr&&todayOpen?todayOpen:''],['equip','設備耗材',openFaults||''],['record','考核紀錄',''],['rules','管理辦法',''],['admin','後台設定','']];
+    const nav=NAV.map(([id,label,badge],i)=>({label,badge:badge?String(badge):'',no:pad(i+1),onClick:go(id),bg:s.page===id?'#3B3530':'transparent',fg:s.page===id?'#FBF8F2':'#5A5048'}));
+    const roleButtons=[['student','學員'],['manager',rt.manager],['trainer',rt.trainer],['tutor',rt.tutor]].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
+
+    // dashboard
+    const stats=[
+      {label:'目前在場',value:present,unit:'人',go:'check',c:'#4F6140'},
+      {label:'待確認預約',value:pendingAll,unit:'筆',go:'book',c:pendingAll?'#8A6A3A':'#3B3530'},
+      {label:'未處理故障',value:openFaults,unit:'台',go:'equip',c:openFaults?'#9A4A3A':'#3B3530'},
+      {label:'待審請假',value:pendingLeaves,unit:'件',go:'wed',c:'#3B3530'},
+      {label:'低庫存耗材',value:lowStock,unit:'項',go:'equip',c:lowStock?'#9A4A3A':'#3B3530'}
+    ].map(t=>({...t,value:String(t.value),color:t.c,onClick:go(t.go)}));
+    const isTrainToday=dow(TODAY)===TD;
+    const tl=[];
+    SLOTS.forEach(sl=>{ if(isOpen(sl)&&!clashes(TODAY,sl).length) tl.push({start:sl.start,time:`${sl.start}–${sl.end}`,title:`${sl.name||''}・${sl.note||'自由練習'}`,sub:`預約制・${count(TODAY,sl.id)} / ${cap} 人`,who:`${rt.manager}（${roleOf('manager').people}）`,bg:'#F3EEE3',fg:'#3B3530'}); });
+    if(isTrainToday) CLS.forEach((c,i)=>{const r=roleOf(c.leadRole);tl.push({start:c.start,time:`${c.start}–${c.end}`,title:`${c.code}・${c.name}`,sub:c.desc,who:`${r.title}（${r.people}）`,bg:COLORS[i%4],fg:'#FBF8F2'});});
+    tl.sort((a,b)=>a.start.localeCompare(b.start));
+    const closingList=lines(cfg.closingItems);
+    const closing=closingList.map(label=>({label,box:s.closing[label]?'#3B3530':'#FBF8F2',mark:s.closing[label]?'✓':'',onClick:()=>this.setState(st=>({closing:{...st.closing,[label]:!st.closing[label]}}))}));
+    const closingDone=closingList.every(label=>!!s.closing[label]);
+    const myNs=ns(me), mySusp=susp(me);
+    const myUpcoming=bookings.filter(b=>b.sid===me&&b.date>=TODAY&&['pending','confirmed','checkedin'].includes(b.status)).sort((a,b)=>(a.date+slotById(a.slot).start).localeCompare(b.date+slotById(b.slot).start))
+      .map(b=>{const sl=slotById(b.slot);return {when:`${md(b.date)}（${DOW[dow(b.date)]}）${sl.start}–${sl.end}`,...tag(b.status)};});
+
+    // training
+    const weds=[]; { let d=cfg.semStart; for(let i=0;i<7&&dow(d)!==TD;i++) d=add(d,1); for(let n=0;d<=cfg.semEnd&&n<40;d=add(d,7),n++) weds.push(d); }
+    const wedDate=weds.includes(s.wedDate)?s.wedDate:(weds.find(d=>d>=TODAY)||weds[0]||TODAY);
+    const wedTabs=weds.map((d,i)=>({label:md(d),week:'第'+(i+1)+'週',onClick:()=>this.setState({wedDate:d}),bg:wedDate===d?'#3B3530':d===TODAY?'#F3E6CF':'#FBF8F2',fg:wedDate===d?'#FBF8F2':'#3B3530'}));
+    const classes=CLS.map((c,i)=>{
+      const canMark=c.leadRole===role;
+      let here=0,off=0;
+      const members=STU.filter(x=>x.group===c.id);
+      const roster=members.map(x=>{
+        const lv=s.leaves.find(l=>l.sid===x.id&&l.date===wedDate&&l.status!=='rejected');
+        const k=wedDate+'|'+x.id, at=s.attendance[k], ok=lv&&lv.status==='approved';
+        let t={tag:'未點名',bg:'#F3EEE3',fg:'#857A6C'};
+        if(ok){t={tag:'已請假',bg:'#F3E6CF',fg:'#8A6A3A'};off++;}
+        else if(lv){t={tag:'請假審核中',bg:'#F3E6CF',fg:'#8A6A3A'};}
+        if(!ok&&at){t={tag:'出席',bg:'#E3E8D8',fg:'#4F6140'};here++;}
+        const can=canMark&&!ok;
+        return {name:x.name,...t,cursor:can?'pointer':'default',onClick:()=>{if(can)this.setState(st=>({attendance:{...st.attendance,[k]:!st.attendance[k]}}));}};
+      });
+      const r=roleOf(c.leadRole);
+      return {slot:c.code,time:`${c.start}–${c.end}`,name:c.name,desc:c.desc,lead:`${r.title}\n${r.people}`,bg:COLORS[i%4],roster,empty:!members.length,
+        summary:`出席 ${here}・請假 ${off}・共 ${members.length} 人`,hint:canMark?'點選學員點名':''};
+    });
+    const leaveDates=weds.filter(d=>d>=TODAY).map(d=>({v:d,t:`${md(d)}（${DOW[TD]}）第${weds.indexOf(d)+1}週`}));
+    const leaveDate=leaveDates.some(o=>o.v===s.leaveDate)?s.leaveDate:(leaveDates[0]||{}).v||'';
+    const leaveList=s.leaves.filter(l=>stuIds.has(l.sid)&&(!isStudent||l.sid===me)).sort((a,b)=>b.id-a.id).map(l=>({
+      name:name(l.sid),date:md(l.date),reason:l.reason,...tag(l.status),tag:l.status==='pending'?'待審核':T[l.status].t,
+      canAct:isTrainer&&l.status==='pending',
+      approve:()=>{this.setState(st=>({leaves:st.leaves.map(x=>x.id===l.id?{...x,status:'approved'}:x)}));this.flash('已核准 '+name(l.sid)+' 的請假');},
+      reject:()=>{this.setState(st=>({leaves:st.leaves.map(x=>x.id===l.id?{...x,status:'rejected'}:x)}));this.flash('已退回請假申請');}
+    }));
+
+    // booking grid - anchored on TODAY's week and clamped to the semester range
+    const baseMonday=mondayOf(TODAY);
+    const minWeek=Math.floor(diffDays(baseMonday,cfg.semStart||TODAY)/7);
+    const maxWeek=Math.max(minWeek,Math.floor(diffDays(baseMonday,cfg.semEnd||TODAY)/7));
+    const week=Math.min(maxWeek,Math.max(minWeek,Number(s.week)||0));
+    const monday=add(baseMonday,week*7);
+    const days=[0,1,2,3,4].map(i=>add(monday,i));
+    const inSem=d=>(!cfg.semStart||d>=cfg.semStart)&&(!cfg.semEnd||d<=cfg.semEnd);
+    const weekDays=days.map(d=>({dow:DOW[dow(d)],md:md(d),bg:d===TODAY?'#3B3530':'transparent',fg:d===TODAY?'#FBF8F2':'#3B3530'}));
+    const grid=SLOTS.map(sl=>({start:sl.start,end:sl.end,name:sl.name||'',slogan:sl.slogan||'',rowBg:isOpen(sl)?'transparent':'#F3EEE3',cells:days.map(d=>{
+      if(!isOpen(sl)) return {num:sl.note||'不開放',tag:'',sub:sl.slogan||'',fill:'0%',bg:'#F3EEE3',cursor:'default',outline:'none',numColor:'#8C8173',tagColor:'#857A6C',barColor:'transparent',onClick:()=>{}};
+      if(!inSem(d)) return {num:'—',tag:'',sub:'非學期內',fill:'0%',bg:'#F3EEE3',cursor:'default',outline:'none',numColor:'#B8AC98',tagColor:'#857A6C',barColor:'transparent',onClick:()=>{}};
+      const cl=clashes(d,sl);
+      if(cl.length) return {num:'—',tag:'',sub:cl.map(c=>`${c.start} ${c.code}培訓`).join('・'),fill:'0%',bg:'repeating-linear-gradient(135deg,#F3EEE3 0 6px,#E9E1D2 6px 12px)',cursor:'default',outline:'none',numColor:'#B8AC98',tagColor:'#857A6C',barColor:'transparent',onClick:()=>{}};
+      const n=count(d,sl.id), full=n>=cap, past=d<TODAY;
+      const mine=bookings.some(b=>b.sid===me&&b.date===d&&b.slot===sl.id&&live(b));
+      const pend=bookings.filter(b=>b.date===d&&b.slot===sl.id&&b.status==='pending').length;
+      return {num:`${n}/${cap}`,tag:isStudent&&mine?'我的預約':full?'額滿':past?'已結束':'',
+        sub:pend?`${pend} 筆待確認`:past?'':`剩 ${Math.max(cap-n,0)} 位`,fill:Math.min(100,n/cap*100)+'%',
+        bg:past?'#F6F2EA':'#FBF8F2',cursor:'pointer',outline:isStudent&&mine?'2px solid #B5654A':'none',
+        numColor:past?'#8C8173':'#3B3530',tagColor:full||(isStudent&&mine)?'#B5654A':'#857A6C',barColor:full?'#B5654A':'#3B3530',
+        onClick:()=>this.setState({slotSel:{date:d,slot:sl.id}})};
+    })}));
+
+    let slotVals={slotOpen:false};
+    if(s.slotSel&&slotIds.has(s.slotSel.slot)){
+      const {date,slot}=s.slotSel, sl=slotById(slot), n=count(date,slot);
+      const rows=bookings.filter(b=>b.date===date&&b.slot===slot).map(b=>({name:name(b.sid)+(b.sid===me&&isStudent?'（我）':''),...tag(b.status),
+        canConfirm:isMgr&&b.status==='pending',confirm:()=>this.setB(b.id,'confirmed','已確認 '+name(b.sid)+' 的預約'),
+        reject:()=>{this.setState(st=>({bookings:st.bookings.filter(x=>x.id!==b.id)}));this.flash('已婉拒預約');}}));
+      const mineB=bookings.find(b=>b.sid===me&&b.date===date&&b.slot===slot&&['pending','confirmed'].includes(b.status));
+      const already=bookings.some(b=>b.sid===me&&b.date===date&&b.slot===slot&&live(b));
+      // a student must not hold two bookings that overlap in time, even across different slots
+      const clashB=already?null:bookings.filter(b=>b.sid===me&&b.date===date&&b.slot!==slot&&live(b))
+        .map(b=>slotById(b.slot)).find(o=>overlap(sl,o));
+      let note='';
+      if(!already){ if(mySusp) note=`無故缺席已達 ${limit} 次，預約權限暫停至學期結束`; else if(date<TODAY) note='此時段已結束'; else if(!inSem(date)) note=`已超出本學期（至 ${String(cfg.semEnd||'').replace(/-/g,'/')}）`; else if(clashB) note=`與你已預約的 ${clashB.name||''} ${clashB.start}–${clashB.end} 時間重疊`; else if(n>=cap) note=`此時段已達上限 ${cap} 人`; }
+      slotVals={slotOpen:true,slotTitle:`週${DOW[dow(date)]} ${sl.name||''} ${sl.start}–${sl.end}`,slotTitleSub:date.replace(/-/g,'.'),slotCount:String(n),slotRows:rows,slotEmpty:!rows.length,slotNote:note,
+        slotCanBook:!already&&!note,slotCanCancel:!!mineB,
+        // guard here too, not only in the template, so a stale handler cannot bypass the rules
+        bookSlot:()=>{if(!isStudent||already||note)return; this.setState(st=>({bookings:[...st.bookings,{id:st.nextId,sid:me,date,slot,status:'pending'}],nextId:st.nextId+1}));this.flash(`已送出預約，待${rt.manager}確認`);},
+        cancelSlot:()=>{if(!mineB)return; this.setState(st=>({bookings:st.bookings.filter(b=>b.id!==mineB.id)}));this.flash('已取消預約');}};
+    }
+
+    // check-in
+    const order={checkedin:0,confirmed:1,pending:2,done:3,noshow:4};
+    const todayRows=todayB.slice().sort((a,b)=>order[a.status]-order[b.status]).map(b=>{const nm=name(b.sid),sl=slotById(b.slot),stu=STU.find(x=>x.id===b.sid),c=clsOf(stu&&stu.group);return {
+      name:nm,initial:nm[0],meta:`${sl.start}–${sl.end} · ${c?c.name:'未分班'}`,...tag(b.status),
+      showConfirm:isMgr&&b.status==='pending',showIn:isMgr&&b.status==='confirmed',showOut:isMgr&&b.status==='checkedin',
+      confirm:()=>this.setB(b.id,'confirmed','已確認預約'),checkin:()=>this.setB(b.id,'checkedin',nm+' 已簽到'),
+      noshow:()=>{const k=ns(b.sid)+1;this.setB(b.id,'noshow',k>=limit?`${nm} 缺席達 ${limit} 次，已停權至學期末`:`已登記 ${nm} 無故未到（${k}/${limit}）`);},
+      checkout:()=>this.setState({checkoutId:b.id,checks:{}})};});
+    const coB=bookings.find(b=>b.id===s.checkoutId);
+    const coList=lines(cfg.checkoutItems);
+    const checkItems=coList.map(label=>({label,box:s.checks[label]?'#3B3530':'#FBF8F2',mark:s.checks[label]?'✓':'',onClick:()=>this.setState(st=>({checks:{...st.checks,[label]:!st.checks[label]}}))}));
+    const allChecked=coList.every(label=>!!s.checks[label]);
+
+    // equipment
+    const faultOpen=k=>faultsLive.some(f=>f.eq===k&&f.status==='open');
+    const equipment=cfg.equipment.map(e=>{const bad=faultOpen(e.key);return {code:e.code,type:e.type,tag:bad?'故障・停用':'正常',bg:bad?'#9A4A3A':'#FBF8F2',fg:bad?'#FBF8F2':'#3B3530',sub:bad?'#EBCFC4':'#857A6C'};});
+    const faultEq=eqByKey(s.faultEq)?s.faultEq:(cfg.equipment[0]||{}).key||'';
+    const faults=faultsLive.slice().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||b.id-a.id).map(f=>({code:eqByKey(f.eq).code,desc:f.desc,by:f.by,time:f.time,...tag(f.status),canResolve:(isMgr||isTutor)&&f.status==='open',
+      resolve:()=>{this.setState(st=>({faults:st.faults.map(x=>x.id===f.id?{...x,status:'fixed'}:x)}));this.flash(eqByKey(f.eq).code+' 已標記修復');}}));
+    const setCons=(id,fn)=>this.setCfg(c=>({...c,consumables:c.consumables.map(x=>x.id===id?fn(x):x)}));
+    const consumables=cfg.consumables.map(c=>{const st=Number(c.stock)||0,mn=Number(c.min)||0,mx=Math.max(1,Number(c.max)||1);return {name:c.name,unit:c.unit,stock:String(st),min:String(mn),stepLabel:(Number(c.step)||1)+' '+c.unit,low:st<mn,fill:Math.min(100,st/mx*100)+'%',bar:st<mn?'#9A4A3A':'#3B3530',canRestock:isMgr,
+      restock:()=>{setCons(c.id,x=>({...x,stock:(Number(x.stock)||0)+(Number(x.step)||1)}));this.flash(c.name+' 已補貨');}};});
+    const useItem=cfg.consumables.some(c=>c.id===s.useItem)?s.useItem:(cfg.consumables[0]||{}).id||'';
+    const cName=id=>(cfg.consumables.find(c=>c.id===id)||{name:'（已刪除項目）'}).name;
+    const useLog=s.useLog.slice(0,6).map(u=>({...u,item:cName(u.item),qty:String(u.qty)}));
+
+    // records
+    const records=STU.map(x=>{const n=ns(x.id), sp=n>=limit, c=clsOf(x.group);return {name:x.name,group:c?c.name:'未分班',
+      done:String(bookings.filter(b=>b.sid===x.id&&b.status==='done').length),leaves:String(s.leaves.filter(l=>l.sid===x.id&&l.status==='approved').length),
+      dots:Array.from({length:Math.min(limit,10)},(_,i)=>({bg:i<n?'#9A4A3A':'#FBF8F2'})),ns:n+'/'+limit,n,
+      tag:sp?'停權至學期末':n===limit-1?'警示':'正常',bg:sp?'#9A4A3A':n===limit-1?'#F3E6CF':'#E3E8D8',fg:sp?'#FBF8F2':n===limit-1?'#8A6A3A':'#4F6140'};})
+      .sort((a,b)=>b.n-a.n);
+
+    const roleCards=cfg.roles.map((r,i)=>({no:pad(i+1),title:r.title,bg:['#B5654A','#3B3530','#6B7A5A'][i%3],people:people(r.people).map(t=>({t})),duties:lines(r.duties).map(t=>({t}))}));
+    const rulesView=cfg.rules.map((r,i)=>({num:NUMS[i]||String(i+1),title:r.title,lines:lines(r.body).map(t=>({t}))}));
+
+    // admin
+    const F=(label,value,set,o={})=>({label,value:value==null?'':String(value),onChange:e=>set(o.num?Number(e.target.value):e.target.value),
+      isInput:!o.sel&&!o.area,isSelect:!!o.sel,isArea:!!o.area,type:o.type||(o.num?'number':'text'),options:o.sel||[],rows:o.rows||4,flex:o.flex||'1 1 160px',ro:!canEdit});
+    const setTop=k=>v=>this.setCfg(c=>({...c,[k]:v}));
+    const setItem=(list,i,k)=>v=>this.setCfg(c=>({...c,[list]:c[list].map((x,j)=>j===i?{...x,[k]:v}:x)}));
+    // students may edit the free-practice slot definitions; every other list stays staff-only
+    const canEditList=list=>canEdit||STUDENT_LISTS.includes(list);
+    const slotUsage=id=>s.bookings.filter(b=>b.slot===id).length;
+    const del=(list,i)=>()=>{ if(!canEditList(list)) return;
+      if(list==='slots'){ const sl=cfg.slots[i], used=sl?slotUsage(sl.id):0;
+        // a deleted slot would hide every booking in it, including other people's attendance history
+        if(used){ this.flash(`「${(sl.name||sl.id)}」已有 ${used} 筆預約紀錄，無法刪除`); return; } }
+      this.setCfg(c=>({...c,[list]:c[list].filter((_,j)=>j!==i)})); this.flash('已刪除'); };
+    const addTo=(list,mk)=>()=>{ if(!canEditList(list)) return; this.setCfg(c=>({...c,[list]:[...c[list],mk(c)]})); };
+    const rows=(list,fieldsFn)=>{ const ed=canEditList(list);
+      return cfg[list].map((x,i)=>({num:pad(i+1),fields:fieldsFn(x,i).map(f=>({...f,ro:!ed})),canDelete:ed,onDelete:del(list,i)})); };
+    const roleOpts=cfg.roles.map(r=>({v:r.key,t:r.title}));
+    const classOpts=[{v:'',t:'未分班'}].concat(cfg.classes.map(c=>({v:c.id,t:`${c.code}・${c.name}`})));
+    const dayOpts=[1,2,3,4,5].map(n=>({v:String(n),t:'週'+DOW[n]}));
+    const one=fields=>[{num:'',fields,canDelete:false}];
+    const blocksByTab={
+      basic:[
+        {title:'系統名稱',hint:'顯示於左上角與管理辦法標題',rows:one([F('標誌字',cfg.labBadge,setTop('labBadge'),{flex:'0 1 90px'}),F('系統名稱',cfg.labName,setTop('labName')),F('副標',cfg.labSub,setTop('labSub')),F('管理辦法標題',cfg.rulesTitle,setTop('rulesTitle'),{flex:'2 1 240px'})])},
+        {title:'學期與規則',hint:'固定培訓日會自動封鎖重疊的自由時段',rows:one([F('學期開始',cfg.semStart,setTop('semStart'),{type:'date'}),F('學期結束',cfg.semEnd,setTop('semEnd'),{type:'date'}),
+          F('固定培訓日',String(cfg.trainDay),v=>setTop('trainDay')(Number(v)),{sel:dayOpts}),F('每時段人數上限',cfg.capacity,setTop('capacity'),{num:true,flex:'1 1 120px'}),F('無故缺席停權次數',cfg.noShowLimit,setTop('noShowLimit'),{num:true,flex:'1 1 120px'})])}
+      ],
+      staff:[{title:'人員編制與職責',hint:'三種職務對應系統權限；名稱、人員（以頓號分隔）、職責（每行一項）皆可自訂',rows:cfg.roles.map((r,i)=>({num:pad(i+1),canDelete:false,fields:[
+        F('職務名稱',r.title,setItem('roles',i,'title'),{flex:'1 1 140px'}),F('人員',r.people,setItem('roles',i,'people'),{flex:'1 1 180px'}),F('職責（每行一項）',r.duties,setItem('roles',i,'duties'),{area:true,rows:3,flex:'3 1 280px'})]}))}],
+      classes:[{title:'固定培訓班別',hint:'每班可指定負責職務，該職務可點名',hasAdd:canEdit,addLabel:'新增班別',onAdd:addTo('classes',c=>({id:uid(),code:String.fromCharCode(65+c.classes.length)+' 時段',start:'18:00',end:'20:00',name:'新班別',desc:'',leadRole:'tutor'})),
+        rows:rows('classes',(c,i)=>[F('代號',c.code,setItem('classes',i,'code'),{flex:'0 1 100px'}),F('班名',c.name,setItem('classes',i,'name'),{flex:'1 1 120px'}),F('開始',c.start,setItem('classes',i,'start'),{type:'time',flex:'0 1 120px'}),F('結束',c.end,setItem('classes',i,'end'),{type:'time',flex:'0 1 120px'}),F('課程說明',c.desc,setItem('classes',i,'desc'),{flex:'2 1 180px'}),F('負責職務',c.leadRole,setItem('classes',i,'leadRole'),{sel:roleOpts,flex:'1 1 130px'})])}],
+      slots:[{title:'自由編排時段',hint:'週一至週五；「開放預約」設為否則僅顯示不可預約；與固定培訓重疊的時段會自動封鎖',hasAdd:canEditList('slots'),addLabel:'新增時段',onAdd:addTo('slots',()=>({id:uid(),name:'新節次',start:'19:00',end:'20:00',note:'自由時間',slogan:'',open:'yes'})),
+        rows:rows('slots',(x,i)=>[F('節次',x.name,setItem('slots',i,'name'),{flex:'1 1 90px'}),F('開始',x.start,setItem('slots',i,'start'),{type:'time',flex:'1 1 110px'}),F('結束',x.end,setItem('slots',i,'end'),{type:'time',flex:'1 1 110px'}),F('備註',x.note,setItem('slots',i,'note'),{flex:'1 1 110px'}),F('標語',x.slogan,setItem('slots',i,'slogan'),{flex:'1 1 120px'}),F('開放預約',x.open||'yes',setItem('slots',i,'open'),{sel:[{v:'yes',t:'是'},{v:'no',t:'否'}],flex:'0 1 100px'})])}],
+      students:[{title:`學員名單（${STU.length} 人）`,hint:'班別決定固定培訓分組',hasAdd:canEdit,addLabel:'新增學員',onAdd:addTo('students',c=>({id:uid(),name:'新學員',group:(c.classes[0]||{}).id||''})),
+        rows:rows('students',(x,i)=>[F('姓名',x.name,setItem('students',i,'name')),F('班別',x.group,setItem('students',i,'group'),{sel:classOpts})])}],
+      equip:[{title:`設備清單（${cfg.equipment.length} 台）`,hint:'編號顯示於設備看板與故障回報',hasAdd:canEdit,addLabel:'新增設備',onAdd:addTo('equipment',()=>({key:uid(),code:'NEW',type:'設備'})),
+        rows:rows('equipment',(x,i)=>[F('編號',x.code,setItem('equipment',i,'code')),F('類型',x.type,setItem('equipment',i,'type'))])}],
+      consum:[{title:'耗材項目',hint:'低於安全量時標示警示；補貨量為每次按「補貨」增加的數量',hasAdd:canEdit,addLabel:'新增耗材',onAdd:addTo('consumables',()=>({id:uid(),name:'新耗材',unit:'個',stock:0,min:1,max:10,step:1})),
+        rows:rows('consumables',(x,i)=>[F('名稱',x.name,setItem('consumables',i,'name'),{flex:'2 1 140px'}),F('單位',x.unit,setItem('consumables',i,'unit'),{flex:'0 1 70px'}),F('庫存',x.stock,setItem('consumables',i,'stock'),{num:true,flex:'1 1 80px'}),F('安全量',x.min,setItem('consumables',i,'min'),{num:true,flex:'1 1 80px'}),F('滿倉量',x.max,setItem('consumables',i,'max'),{num:true,flex:'1 1 80px'}),F('補貨量',x.step,setItem('consumables',i,'step'),{num:true,flex:'1 1 80px'})])}],
+      lists:[
+        {title:'簽退檢查項目',hint:'每行一項，全部勾選才能完成簽退',rows:one([F('項目',cfg.checkoutItems,setTop('checkoutItems'),{area:true,rows:5,flex:'1 1 100%'})])},
+        {title:'最後離開者檢查項目',hint:'每行一項，顯示於今日總覽',rows:one([F('項目',cfg.closingItems,setTop('closingItems'),{area:true,rows:4,flex:'1 1 100%'})])}
+      ],
+      rules:[{title:'管理辦法條文',hint:'每條內容可多行，每行為一段',hasAdd:canEdit,addLabel:'新增條文',onAdd:addTo('rules',()=>({id:uid(),title:'新條文',body:''})),
+        rows:rows('rules',(x,i)=>[F('標題',x.title,setItem('rules',i,'title'),{flex:'1 1 200px'}),F('內容',x.body,setItem('rules',i,'body'),{area:true,rows:4,flex:'3 1 320px'})])}]
+    };
+    const TABS=[['basic','基本設定'],['staff','人員編制'],['classes','培訓班別'],['slots','自由編排時段'],['students','學員名單'],['equip','設備'],['consum','耗材'],['lists','檢查清單'],['rules','管理辦法']];
+    const adminTabs=TABS.map(([k,label])=>({label,onClick:()=>this.setState({adminTab:k}),bg:s.adminTab===k?'#3B3530':'#FBF8F2',fg:s.adminTab===k?'#FBF8F2':'#3B3530'}));
+    const adminBlocks=(blocksByTab[s.adminTab]||[]).map(b=>({hasAdd:false,addLabel:'',onAdd:()=>{},...b,empty:!b.rows.length}));
+
+    return {
+      narrow:!!s.narrow,showMenu:!s.narrow||!!s.menuOpen,toggleMenu:()=>this.setState(st=>({menuOpen:!st.menuOpen})),
+      menuBtnBg:s.menuOpen?'#DED5C5':'transparent',bar1:s.menuOpen?'translateY(7px) rotate(45deg)':'none',bar2:s.menuOpen?'0':'1',bar3:s.menuOpen?'translateY(-7px) rotate(-45deg)':'none',
+      asidePad:s.narrow?'12px 16px':'24px 18px',asidePos:s.narrow?'sticky':'static',
+      narrowSub:s.narrow&&!s.menuOpen?(NAV.find(n=>n[0]===s.page)||[,''])[1]+'・'+currentName:cfg.labSub,
+      cfg,rt,trainerPeople:roleOf('trainer').people,roleButtons,nav,isStudent,me,students:STU.map(x=>{const c=clsOf(x.group);return {id:x.id,label:`${x.name}（${c?c.name:'未分班'}）`};}),onMe:e=>this.setState({me:e.target.value}),
+      currentName,reset:()=>{try{localStorage.removeItem(KEY);}catch(e){} this.setState({...seedData(),...freshUI()});this.flash('已重設全部示範資料');},
+      resetCfg:()=>{ if(!canEdit) return; this.setState({cfg:seedCfg()}); this.flash('已還原預設設定'); },
+      canResetCfg:canEdit,
+      studentEditNotice:isStudent&&STUDENT_TABS.includes(s.adminTab),
+      studentRONotice:isStudent&&!STUDENT_TABS.includes(s.adminTab),
+      adminSubtitle:isStudent?'學員可編排「自由編排時段」，其餘頁籤僅可檢視。':'所有內容即時生效並自動儲存。',
+      isDash:s.page==='dash',isStaff:s.page==='staff',isWed:s.page==='wed',isBook:s.page==='book',isCheck:s.page==='check',isEquip:s.page==='equip',isRecord:s.page==='record',isRules:s.page==='rules',isAdmin:s.page==='admin',
+      todayHeader:`${TODAY.replace(/-/g,'.')} ${EDOW[dow(TODAY)]}${isTrainToday?' · 固定培訓日':''}`,
+      demoDate:`${TODAY.replace(/-/g,'/')}（${DOW[dow(TODAY)]}）`,
+      stats,timeline:tl,closing,closingLabel:closingDone?'已完成':'未完成',closingBg:closingDone?'#E3E8D8':'#F3E6CF',closingFg:closingDone?'#4F6140':'#8A6A3A',
+      myStatus:mySusp?'已停權至學期末':myNs===limit-1?'正常（警示）':'正常',myStatusColor:mySusp?'#9A4A3A':myNs===limit-1?'#8A6A3A':'#4F6140',
+      myNoShow:String(myNs),limit:String(limit),cap:String(cap),myUpcoming,myUpcomingEmpty:!myUpcoming.length,goBook:e=>{e.preventDefault();this.setState({page:'book'});},
+      trainTitle:trainName,trainSub:`${cfg.semStart.replace(/-/g,'/')} – ${cfg.semEnd.replace(/-/g,'/')}・共 ${weds.length} 週・${CLS.length} 個班別`,
+      wedTabs,classes,leaveDates,leaveDate,onLeaveDate:e=>this.setState({leaveDate:e.target.value}),
+      leaveReason:s.leaveReason,onLeaveReason:e=>this.setState({leaveReason:e.target.value}),
+      submitLeave:()=>{ if(!leaveDate){this.flash('本學期已無可請假日期');return;} if(!s.leaveReason.trim()){this.flash('請填寫請假原因');return;}
+        if(s.leaves.some(l=>l.sid===me&&l.date===leaveDate&&l.status!=='rejected')){this.flash('該日已有請假申請');return;}
+        this.setState(st=>({leaves:[...st.leaves,{id:Date.now(),sid:me,date:leaveDate,reason:st.leaveReason.trim(),status:'pending'}],leaveReason:''}));this.flash(`已送出，待${rt.trainer}審核`);},
+      leaveTitle:isStudent?'我的請假紀錄':'請假申請',leaveList,leaveEmpty:!leaveList.length,
+      weekLabel:`${md(days[0])} – ${md(days[4])}`,weekDays,grid,gridEmpty:!grid.length,prevWeek:()=>this.setState({week:Math.max(minWeek,week-1)}),nextWeek:()=>this.setState({week:Math.min(maxWeek,week+1)}),
+      meSuspended:isStudent&&mySusp,semEndLabel:cfg.semEnd.replace(/-/g,'/'),bookHint:isMgr?'並確認待審預約':isStudent?'並預約':'',
+      ...slotVals,closeSlot:()=>this.setState({slotSel:null}),
+      presentCount:String(present),notManager:!isMgr,todayRows,todayEmpty:!todayRows.length,
+      checkoutOpen:!!coB,checkoutName:coB?name(coB.sid):'',checkItems,checkoutBlocked:!allChecked,checkoutBtnBg:allChecked?'#B5654A':'#CFC5B3',
+      closeCheckout:()=>this.setState({checkoutId:null}),
+      doCheckout:()=>{if(!allChecked||!coB)return; const nm=name(coB.sid); this.setState(st=>({bookings:st.bookings.map(b=>b.id===coB.id?{...b,status:'done'}:b),checkoutId:null})); this.flash(nm+' 已完成簽退');},
+      equipment,faults,consumables,useLog,
+      equipOptions:cfg.equipment.map(e=>({v:e.key,t:`${e.code}・${e.type}`})),faultEq,onFaultEq:e=>this.setState({faultEq:e.target.value}),
+      faultDesc:s.faultDesc,onFaultDesc:e=>this.setState({faultDesc:e.target.value}),
+      submitFault:()=>{ if(!faultEq){this.flash('尚無設備');return;} if(!s.faultDesc.trim()){this.flash('請描述故障狀況');return;} const code=eqByKey(faultEq).code;
+        this.setState(st=>({faults:[...st.faults,{id:Date.now(),eq:faultEq,desc:st.faultDesc.trim(),by:currentName,time:now(),status:'open'}],faultDesc:''})); this.flash(code+' 已回報故障');},
+      consumeOptions:cfg.consumables.map(c=>({v:c.id,t:`${c.name}（${c.unit}）`})),useItem,onUseItem:e=>this.setState({useItem:e.target.value}),
+      useQty:String(s.useQty),onUseQty:e=>this.setState({useQty:Math.max(1,parseInt(e.target.value)||1)}),
+      submitUse:()=>{const c=cfg.consumables.find(x=>x.id===useItem); if(!c){this.flash('尚無耗材項目');return;} if((Number(c.stock)||0)<s.useQty){this.flash('庫存不足');return;}
+        setCons(c.id,x=>({...x,stock:(Number(x.stock)||0)-s.useQty})); this.setState(st=>({useLog:[{who:currentName,item:c.id,qty:st.useQty,time:now()},...st.useLog].slice(0,200),useQty:1})); this.flash(`已登記取用 ${c.name} × ${s.useQty}`);},
+      records,roleCards,rulesView,adminTabs,adminBlocks,toast:s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>
