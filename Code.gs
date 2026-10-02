@@ -376,12 +376,15 @@ const ACTIONS = {
     const { t, cfg } = readCfg_();
     const entries = checkCfgEntries_([{ key: p.key, value: p.value }], cfg, me);
     writeCfg_(t, entries);
+    return afterStudents_(entries, cfg);
   },
 
   setConfigBatch(p, me) {
     if (!Array.isArray(p.entries) || !p.entries.length) throw new ApiError('BAD_PAYLOAD', '參數不完整');
     const { t, cfg } = readCfg_();
-    writeCfg_(t, checkCfgEntries_(p.entries, cfg, me));   // 全部驗證通過才寫入
+    const entries = checkCfgEntries_(p.entries, cfg, me);   // 全部驗證通過才寫入
+    writeCfg_(t, entries);
+    return afterStudents_(entries, cfg);
   },
 
   deleteSlot(p, me) {
@@ -499,7 +502,7 @@ function onOpen() {
 function onEdit(e) {
   try {
     const name = e && e.range && e.range.getSheet().getName();
-    if (name === SHEETS.accounts.name) readAccounts_();
+    if (name === SHEETS.accounts.name) { readAccounts_(); syncStudentsFromAccounts_(); }
     if (Object.keys(SHEETS).some(k => SHEETS[k].name === name)) bump_();
   } catch (x) {}
 }
@@ -520,18 +523,7 @@ function createStudentAccounts() {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const cfg = readCfg_().cfg, t = readAccounts_();
-    const has = new Set(t.rows.map(r => r.sid).filter(Boolean));
-    const taken = new Set(t.rows.map(r => r.user.toLowerCase()));
-    const lines = [];
-    cfg.students.filter(s => !has.has(s.id)).forEach(s => {
-      let user = s.id;
-      for (let n = 2; taken.has(user.toLowerCase()); n++) user = s.id + '-' + n;
-      taken.add(user.toLowerCase());
-      const pw = randomPw_(6);
-      append_(t, { user, name: s.name, role: 'student', sid: s.id, active: true, pw: hashPw_(pw) });
-      lines.push(`${user}\t${s.name}\t${pw}`);
-    });
+    const lines = createAccountsFor_(readCfg_().cfg.students).map(a => `${a.user}\t${a.name}\t${a.pw}`);
     showOnce_('學員帳號已建立（初始密碼只顯示這一次，請複製保存）',
       lines.length ? '帳號\t姓名\t初始密碼\n' + lines.join('\n') : '所有學員都已有帳號，未新增。');
     return lines.length;
@@ -758,6 +750,50 @@ function writeStudents_(list) {
   list.forEach(s => { if (want.has(String(s.id))) append_(t, { id: s.id, name: s.name || '', group: s.group || '' }); });
 }
 
+// 學員名單存檔後：新學員自動建立登入帳號（回傳初始密碼給前端顯示一次），改名的學員同步更新帳號姓名
+function afterStudents_(entries, before) {
+  if (!entries.students) return {};
+  const old = new Set(before.students.map(s => s.id));
+  const created = createAccountsFor_(entries.students.filter(s => !old.has(s.id)));
+  const t = readTable_('accounts');
+  entries.students.forEach(s => {
+    t.rows.filter(r => r.role === 'student' && r.sid === s.id && s.name && r.name !== s.name)
+      .forEach(r => update_(t, r, { name: s.name }));
+  });
+  return created.length ? { created } : {};
+}
+
+// 替還沒有帳號的學員建立帳號（帳號 = 學員代號），回傳 [{user,name,pw}]
+function createAccountsFor_(students) {
+  if (!students.length) return [];
+  const t = readAccounts_();
+  const has = new Set(t.rows.map(r => r.sid).filter(Boolean));
+  const taken = new Set(t.rows.map(r => r.user.toLowerCase()));
+  const out = [];
+  students.filter(s => !has.has(s.id)).forEach(s => {
+    let user = s.id;
+    for (let n = 2; taken.has(user.toLowerCase()); n++) user = s.id + '-' + n;
+    taken.add(user.toLowerCase());
+    const pw = randomPw_(6);
+    append_(t, { user, name: s.name, role: 'student', sid: s.id, active: true, pw: hashPw_(pw) });
+    out.push({ user, name: s.name, pw });
+  });
+  return out;
+}
+
+// 帳號管理新增的學員帳號，學員代號不在名單上時自動加入學員名單
+function syncStudentsFromAccounts_() {
+  const cfg = readCfg_().cfg, known = new Set(cfg.students.map(s => s.id)), names = new Set(cfg.students.map(s => s.name));
+  const t = readTable_('students'), group = (cfg.classes[0] || {}).id || '';
+  let added = 0;
+  readTable_('accounts').rows.forEach(r => {
+    if (r.role !== 'student' || !r.sid || known.has(r.sid) || names.has(r.sid)) return;   // 填姓名的由 studentSid_ 對應
+    append_(t, { id: r.sid, name: r.name || r.sid, group });
+    known.add(r.sid); added++;
+  });
+  return added;
+}
+
 // 直接讀系統設定分頁的某一鍵（不經過 readCfg_，供建立學員名單分頁時使用）
 function rawCfg_(key) {
   const row = readTable_('config').rows.find(r => r.key === key);
@@ -868,6 +904,8 @@ function setup() {
   if (empty) { seedAll_(); Logger.log('已建立資料分頁並寫入示範資料'); }
   else Logger.log('分頁已存在且有資料，未覆寫；已重新套用排版');
 
+  const added = syncStudentsFromAccounts_();
+  if (added) Logger.log(`已依帳號管理補上 ${added} 位學員到學員名單`);
   const acc = readAccounts_();
   if (!acc.rows.some(r => r.role === 'admin' && r.active !== 'FALSE')) {
     const pw = randomPw_(10);

@@ -513,6 +513,21 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
   </div>
 </sc-if>
 
+<sc-if value="{{ createdOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(59,53,48,.45);z-index:31;display:grid;place-items:center;padding:16px;overflow:auto">
+    <div style="width:min(480px,100%);background:#FBF8F2;border:1px solid #8C8173;display:flex;flex-direction:column">
+      <div style="padding:18px 20px;border-bottom:1px solid #D6CCBA;display:flex;flex-direction:column;gap:4px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px;color:#857A6C">NEW ACCOUNTS</span><span style="font-size:20px;font-weight:600">已建立學員帳號</span><span style="font-size:13px;color:#857A6C">學員已同步到 Google Sheet「學員名單」，並自動建立登入帳號。<b style="color:#9A4A3A">初始密碼只顯示這一次</b>，請抄下來交給學員，登入後可自行修改。</span></div>
+      <div style="padding:8px 20px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-size:13px;font-weight:600;color:#857A6C"><span style="padding:8px 10px;border-bottom:1px solid #E6DDCD">帳號</span><span style="padding:8px 10px;border-bottom:1px solid #E6DDCD">姓名</span><span style="padding:8px 10px;border-bottom:1px solid #E6DDCD">初始密碼</span></div>
+        <sc-for list="{{ createdAccounts }}" as="ca" hint-placeholder-count="1">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-size:15px"><span style="padding:8px 10px;border-bottom:1px solid #E6DDCD">{{ ca.user }}</span><span style="padding:8px 10px;border-bottom:1px solid #E6DDCD">{{ ca.name }}</span><span style="padding:8px 10px;border-bottom:1px solid #E6DDCD;font-family:monospace;font-weight:600;letter-spacing:.08em">{{ ca.pw }}</span></div>
+        </sc-for>
+      </div>
+      <div style="padding:12px 20px 18px;display:flex;justify-content:flex-end"><button onClick="{{ closeCreated }}" style="padding:10px 16px;border:none;background:#B5654A;color:#fff;font-size:14px;font-weight:600;cursor:pointer">我已記下，關閉</button></div>
+    </div>
+  </div>
+</sc-if>
+
 <sc-if value="{{ noticeOpen }}" hint-placeholder-val="{{ false }}">
   <div onClick="{{ closeNotices }}" style="position:fixed;inset:0;background:rgba(59,53,48,.35);z-index:20"></div>
   <div style="position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);background:#FBF8F2;border-left:1px solid #8C8173;z-index:21;display:flex;flex-direction:column">
@@ -691,7 +706,7 @@ const STUDENT_TABS = ['slots'];
 const LEGACY_SLOTS = {s1:'p2',s2:'p6',s3:'p9'};
 function freshUI(){ return {week:0, wedDate:'', slotSel:null, checkoutId:null, checks:{}, toast:'',
   adminTab:'basic', leaveDate:'', leaveReason:'', faultEq:'', faultDesc:'', useItem:'', useQty:1,
-  loginUser:'', loginPw:'', loginError:'', authBusy:false, pwOpen:false, pwCur:'', pwNew:'', pwNew2:'', pwError:'', recEdit:null, recError:'', noticeOpen:false}; }
+  loginUser:'', loginPw:'', loginError:'', authBusy:false, pwOpen:false, pwCur:'', pwNew:'', pwNew2:'', pwError:'', recEdit:null, recError:'', noticeOpen:false, createdAccounts:[]}; }
 
 class Component extends DCLogic {
   state = (() => {
@@ -735,7 +750,9 @@ class Component extends DCLogic {
       .then(()=>fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,token,...params})}))
       .then(r=>r.json())
       .then(res=>{ if(res.error==='AUTH_REQUIRED'){ this.signedOut(res.message); return; }
-        if(!res.ok) this.flash(res.message||'伺服器拒絕此操作'); if(res.data){ this._latest=res.data; this._ver=res.v; } this.setState({online:true}); },
+        if(!res.ok) this.flash(res.message||'伺服器拒絕此操作'); if(res.data){ this._latest=res.data; this._ver=res.v; } this.setState({online:true});
+        // 後台新增學員時伺服器自動建立的帳號：初始密碼只顯示這一次
+        if(res.created&&res.created.length) this.setState(st=>({createdAccounts:[...(st.createdAccounts||[]),...res.created]})); },
             ()=>{ this._lost=true; this.setState({online:false}); this.flash('無法連線 Google Sheet，畫面將還原為伺服器資料'); })
       .then(()=>{ if(--this._inflight) return;
         if(this._latest) this.applyServer(this._latest); this._latest=null; this.setState({syncing:false});
@@ -1068,7 +1085,7 @@ class Component extends DCLogic {
         rows:rows('classes',(c,i)=>[F('代號',c.code,setItem('classes',i,'code'),{flex:'0 1 100px'}),F('班名',c.name,setItem('classes',i,'name'),{flex:'1 1 120px'}),F('開始',c.start,setItem('classes',i,'start'),{type:'time',flex:'0 1 120px'}),F('結束',c.end,setItem('classes',i,'end'),{type:'time',flex:'0 1 120px'}),F('課程說明',c.desc,setItem('classes',i,'desc'),{flex:'2 1 180px'}),F('負責職務',c.leadRole,setItem('classes',i,'leadRole'),{sel:roleOpts,flex:'1 1 130px'})])}],
       slots:[{title:'自由編排時段',hint:'週一至週五；「開放預約」設為否則僅顯示不可預約；與固定培訓重疊的時段會自動封鎖',hasAdd:canEditList('slots'),addLabel:'新增時段',onAdd:addTo('slots',()=>({id:uid(),name:'新節次',start:'19:00',end:'20:00',note:'自由時間',slogan:'',open:'yes'})),
         rows:rows('slots',(x,i)=>[F('節次',x.name,setItem('slots',i,'name'),{flex:'1 1 90px'}),F('開始',x.start,setItem('slots',i,'start'),{type:'time',flex:'1 1 110px'}),F('結束',x.end,setItem('slots',i,'end'),{type:'time',flex:'1 1 110px'}),F('備註',x.note,setItem('slots',i,'note'),{flex:'1 1 110px'}),F('標語',x.slogan,setItem('slots',i,'slogan'),{flex:'1 1 120px'}),F('開放預約',x.open||'yes',setItem('slots',i,'open'),{sel:[{v:'yes',t:'是'},{v:'no',t:'否'}],flex:'0 1 100px'})])}],
-      students:[{title:`學員名單（${STU.length} 人）`,hint:'班別決定固定培訓分組；學員代號用於帳號對應，建立後不可修改。名單同步存於 Google Sheet「學員名單」分頁',hasAdd:canEdit,addLabel:'新增學員',
+      students:[{title:`學員名單（${STU.length} 人）`,hint:API_URL?'新增學員會同步到 Google Sheet「學員名單」並自動建立登入帳號（帳號 = 學員代號）；學員代號建立後不可修改':'班別決定固定培訓分組；學員代號建立後不可修改',hasAdd:canEdit,addLabel:'新增學員',
         // 新學員代號 = 班別代號 + 下一個號碼（A9、B1…）
         onAdd:addTo('students',c=>{ const g=(c.classes[0]||{}).id||'S'; let n=1; while(c.students.some(s=>s.id===g+n)) n++; return {id:g+n,name:'新學員',group:(c.classes[0]||{}).id||''}; }),
         rows:rows('students',(x,i)=>[{...F('學員代號',x.id,()=>{},{flex:'0 1 110px'}),lock:true},F('姓名',x.name,setItem('students',i,'name')),F('班別',x.group,setItem('students',i,'group'),{sel:classOpts})])}],
@@ -1102,6 +1119,7 @@ class Component extends DCLogic {
       openPw:()=>this.setState({pwOpen:true,pwCur:'',pwNew:'',pwNew2:'',pwError:''}),closePw:()=>this.setState({pwOpen:false}),
       onPwCur:e=>this.setState({pwCur:e.target.value}),onPwNew:e=>this.setState({pwNew:e.target.value}),onPwNew2:e=>this.setState({pwNew2:e.target.value}),
       savePw:()=>this.changePw(),
+      createdOpen:!!(s.createdAccounts||[]).length,createdAccounts:s.createdAccounts||[],closeCreated:()=>this.setState({createdAccounts:[]}),
       noticeOpen:!!s.noticeOpen,unreadLabel:s.unread?String(s.unread):'',noticeBtnBg:s.unread?'#F3E6CF':'transparent',
       noticeList:(s.notices||[]).map((n,i)=>({...n,bg:i<(s.noticeSeen||0)?'#F3E6CF':'transparent'})),noticeEmpty:!(s.notices||[]).length,noticeHas:!!(s.notices||[]).length,
       noticeHint:can('bookings')?'學員預約、取消與請假申請會即時出現在這裡':'你的預約與請假有變動時會出現在這裡',
