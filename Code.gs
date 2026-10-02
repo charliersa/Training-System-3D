@@ -4,14 +4,32 @@
  *
  * 首次使用：
  *   1. 在 GAS 編輯器選函式 setup → 執行（會要求授權）
- *      只會新增下方 SHEETS 的 6 張分頁，不會動到試算表裡既有的其他分頁
+ *      只會新增下方 SHEETS 的 7 張分頁，不會動到試算表裡既有的其他分頁
+ *      第一次執行會建立 admin 帳號，初始密碼顯示在「執行記錄」
  *   2. 部署 → 新增部署作業 → 網頁應用程式（執行身分：我；存取權：任何人）
+ *   3. 重新整理試算表，上方選單「人培室系統 → 建立學員帳號」可依學員名單一次建好學員帳號
  */
 
 /** ───── 依你的 Sheet 實際結構調整這一區 ───── */
 const SHEET_ID = '';   // '' = 與此腳本綁定的試算表（擴充功能 → Apps Script 建立）；獨立專案才需填試算表 ID
 const TZ = 'Asia/Taipei';
 const DEMO_TODAY = '2026-09-30';   // 寫入 Config.today；清空該格即改用伺服器真實日期
+
+// 固定角色與權限。管理人員／培訓專員／培訓輔導員的顯示名稱以後台「人員編制」為準
+//   bookings   確認、婉拒、簽到、簽退、登記缺席、代學員預約或取消
+//   leaves     審核請假、代學員請假
+//   attendance 點名任何班別（其他角色只能點自己負責的班別，依「培訓班別」的負責職務）
+//   faultFix   標記故障已修復      restock  耗材補貨
+//   config     編輯全部後台設定    slots    只編輯「自由編排時段」      reset  重設全部資料
+const ROLES = {
+  admin:   { label:'系統管理員', perms:['bookings','leaves','attendance','faultFix','restock','config','slots','reset'] },
+  manager: { label:'管理人員',   perms:['bookings','faultFix','restock'] },
+  trainer: { label:'培訓專員',   perms:['leaves'] },
+  tutor:   { label:'培訓輔導員', perms:['faultFix'] },
+  editor:  { label:'編輯人員',   perms:['config','slots'] },
+  student: { label:'學員',       perms:['slots'] }
+};
+const SESSION_HOURS = 6;   // 登入有效時間；有操作就自動延長
 
 // cols：左邊是程式內部名稱（固定），右邊是 Sheet 標題列文字（可改）；欄位順序即 setup() 建表時的排列
 // 標「顯示用」的欄位只在寫入時填入方便人閱讀，程式不讀它（例如學員改名後，舊紀錄保留當時的姓名）
@@ -31,7 +49,11 @@ const SHEETS = {
   useLog:     { name: '耗材取用', tab: '#4A5A6E',
                 cols: { time:'時間', who:'取用人', itemName:'耗材', qty:'數量', item:'耗材代號' } },
   config:     { name: '系統設定', tab: '#3B3530',
-                cols: { label:'說明', key:'設定項', value:'內容（JSON）' } }
+                cols: { label:'說明', key:'設定項', value:'內容（JSON）' } },
+  // 新增帳號：填帳號、姓名、角色（學員另填學員代號），在「設定新密碼」輸入密碼，系統會立即加密並清空該格
+  accounts:   { name: '帳號管理', tab: '#5A5048',
+                cols: { user:'帳號', name:'姓名', role:'角色', sid:'學員代號', active:'狀態',
+                        newpw:'設定新密碼', pw:'密碼（已加密）', lastLogin:'最後登入' } }
 };
 /** ───── 以下不需修改 ───── */
 
@@ -44,8 +66,14 @@ const ENUMS = {
   leaves:     { status:  { pending:['待審核','#F3E6CF','#8A6A3A'], approved:['已核准','#E3E8D8','#4F6140'],
                            rejected:['已退回','#ECE6DA','#6B7A5A'] } },
   faults:     { status:  { open:['待處理','#F1DDD5','#9A4A3A'], fixed:['已修復','#E3E8D8','#4F6140'] } },
-  attendance: { present: { TRUE:['出席','#E3E8D8','#4F6140'], FALSE:['未出席','#ECE6DA','#857A6C'] } }
+  attendance: { present: { TRUE:['出席','#E3E8D8','#4F6140'], FALSE:['未出席','#ECE6DA','#857A6C'] } },
+  accounts:   { role:    { admin:['系統管理員','#3B3530','#FBF8F2'], manager:['管理人員','#E2E6EA','#4A5A6E'],
+                           trainer:['培訓專員','#F3E6CF','#8A6A3A'], tutor:['培訓輔導員','#E3E8D8','#4F6140'],
+                           editor:['編輯人員','#ECE6DA','#6B7A5A'], student:['學員','#FFFFFF','#3B3530'] },
+                active:  { TRUE:['啟用','#E3E8D8','#4F6140'], FALSE:['停用','#F1DDD5','#9A4A3A'] } }
 };
+// 資料分頁（重設示範資料只動這些；帳號管理永遠不會被清除）
+const DATA_TABLES = ['bookings', 'leaves', 'attendance', 'faults', 'useLog', 'config'];
 
 // 排版：欄寬（px）、淡色欄（代號類）、置中欄、自動換行欄
 const LAYOUT = {
@@ -59,7 +87,9 @@ const LAYOUT = {
                 muted:['eq','updatedAt'], center:['id','time','status','eq','updatedAt'], wrap:['desc'] },
   useLog:     { widths:{ time:110, who:110, itemName:140, qty:70, item:90 },
                 muted:['item'], center:['time','qty','item'] },
-  config:     { widths:{ label:170, key:130, value:620 }, muted:['key'], center:[] }
+  config:     { widths:{ label:170, key:130, value:620 }, muted:['key'], center:[] },
+  accounts:   { widths:{ user:110, name:110, role:110, sid:80, active:70, newpw:130, pw:220, lastLogin:150 },
+                muted:['pw','lastLogin'], center:['role','sid','active','lastLogin'] }
 };
 
 // 系統設定分頁的「說明」欄
@@ -94,10 +124,11 @@ const CFG_TYPES = {
 /* ════════════════════════ 進入點 ════════════════════════ */
 
 function doGet(e) {
-  const action = (e && e.parameter && e.parameter.action) || 'load';
-  if (action !== 'load') return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), false));
+  const q = (e && e.parameter) || {};
+  if ((q.action || 'load') !== 'load') return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), false));
   try {
-    return json_({ ok: true, data: state_() });
+    const me = auth_(q.token);
+    return json_({ ok: true, user: userOf_(me), data: state_() });
   } catch (x) {
     return json_(failure_(x, false));
   }
@@ -112,16 +143,22 @@ function doPost(e) {
     return json_(failure_(new ApiError('BAD_PAYLOAD', '參數不完整'), true));
   }
   const fn = Object.prototype.hasOwnProperty.call(ACTIONS, p.action) ? ACTIONS[p.action] : null;
-  if (!fn) return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), true));
+  if (!fn) return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), false));
 
+  // 除了 login，每個操作都要帶有效的 token；未登入時失敗回應也不附資料
+  let me = null;
+  if (p.action !== 'login') {
+    try { me = auth_(p.token); } catch (x) { return json_(failure_(x, false)); }
+  }
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) return json_(failure_(new ApiError('LOCK_TIMEOUT', '伺服器忙碌，請重試'), true));
+  if (!lock.tryLock(10000)) return json_(failure_(new ApiError('LOCK_TIMEOUT', '伺服器忙碌，請重試'), !!me));
   try {
-    const extra = fn(p) || {};
+    const extra = fn(p, me) || {};
     SpreadsheetApp.flush();
+    if (p.action === 'logout') return json_({ ok: true });
     return json_(Object.assign({ ok: true }, extra, { data: state_() }));
   } catch (x) {
-    return json_(failure_(x, true));
+    return json_(failure_(x, !!me));
   } finally {
     lock.releaseLock();
   }
@@ -131,8 +168,40 @@ function doPost(e) {
 
 const ACTIONS = {
 
-  book(p) {
+  login(p) {
+    const user = reqStr_(p.user), pw = String(p.password == null ? '' : p.password);
+    const cache = CacheService.getScriptCache(), fk = 'fail:' + user.toLowerCase();
+    const fails = Number(cache.get(fk)) || 0;
+    if (fails >= 5) throw new ApiError('LOGIN_LOCKED', '密碼錯誤次數過多，請 10 分鐘後再試');
+    const t = readAccounts_();
+    const acc = t.rows.find(r => r.user.toLowerCase() === user.toLowerCase());
+    if (!acc || !acc.pw || !checkPw_(pw, acc.pw) || acc.active === 'FALSE' || !ROLES[acc.role]) {
+      cache.put(fk, String(fails + 1), 600);
+      throw new ApiError('LOGIN_FAILED', '帳號或密碼錯誤');
+    }
+    cache.remove(fk);
+    update_(t, acc, { lastLogin: ts_() });
+    const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+    cache.put('s:' + token, acc.user, SESSION_HOURS * 3600);
+    return { token, user: userOf_(acc) };
+  },
+
+  logout(p) {
+    CacheService.getScriptCache().remove('s:' + p.token);
+  },
+
+  changePassword(p, me) {
+    const next = String(p.next == null ? '' : p.next);
+    if (next.length < 6) throw new ApiError('BAD_PAYLOAD', '新密碼至少 6 個字元');
+    const t = readAccounts_();
+    const acc = t.rows.find(r => r.user === me.user);
+    if (!checkPw_(String(p.current == null ? '' : p.current), acc.pw)) throw new ApiError('WRONG_PASSWORD', '目前密碼不正確');
+    update_(t, acc, { pw: hashPw_(next) });
+  },
+
+  book(p, me) {
     const sid = reqStr_(p.sid), slot = reqStr_(p.slot), date = reqDate_(p.date);
+    selfOr_(me, sid, 'bookings', '只能用自己的身分預約');
     const cfg = readCfg_().cfg, today = today_(cfg);
     if (!cfg.students.some(s => s.id === sid)) throw new ApiError('BAD_PAYLOAD', '學員不存在');
 
@@ -168,19 +237,25 @@ const ACTIONS = {
     return { id };
   },
 
-  cancelBooking(p) {
+  cancelBooking(p, me) {
     const t = readTable_('bookings');
-    t.sh.deleteRow(findById_(t, p.id)._row);
+    const row = findById_(t, p.id);
+    // 學員只能取消自己尚未簽到的預約；婉拒或取消別人的預約需要 bookings 權限
+    if (!can_(me, 'bookings') && !(me.role === 'student' && row.sid === me.sid && ['pending', 'confirmed'].includes(row.status)))
+      throw new ApiError('FORBIDDEN', '只能取消自己尚未簽到的預約');
+    t.sh.deleteRow(row._row);
   },
 
-  setBookingStatus(p) {
+  setBookingStatus(p, me) {
+    need_(me, 'bookings');
     const status = reqEnum_(p.status, BOOKING_STATUS);
     const t = readTable_('bookings');
     update_(t, findById_(t, p.id), { status, updatedAt: ts_() });
   },
 
-  submitLeave(p) {
+  submitLeave(p, me) {
     const sid = reqStr_(p.sid), date = reqDate_(p.date);
+    selfOr_(me, sid, 'leaves', '只能替自己請假');
     const reason = String(p.reason == null ? '' : p.reason).trim();
     if (!reason) throw new ApiError('BAD_PAYLOAD', '請填寫請假原因');
     const cfg = readCfg_().cfg;
@@ -197,13 +272,14 @@ const ACTIONS = {
     return { id };
   },
 
-  setLeaveStatus(p) {
+  setLeaveStatus(p, me) {
+    need_(me, 'leaves');
     const status = reqEnum_(p.status, LEAVE_STATUS);
     const t = readTable_('leaves');
     update_(t, findById_(t, p.id), { status, updatedAt: ts_() });
   },
 
-  submitFault(p) {
+  submitFault(p, me) {
     const eq = reqStr_(p.eq);
     const desc = String(p.desc == null ? '' : p.desc).trim();
     if (!desc) throw new ApiError('BAD_PAYLOAD', '請描述故障狀況');
@@ -211,17 +287,18 @@ const ACTIONS = {
     if (!cfg.equipment.some(e => e.key === eq)) throw new ApiError('BAD_PAYLOAD', '設備不存在');
     const t = readTable_('faults');
     const id = nextId_(t);
-    append_(t, decorate_('faults', { id, eq, desc, by: String(p.by || ''), time: stamp_(cfg), status: 'open', updatedAt: ts_() }, cfg));
+    append_(t, decorate_('faults', { id, eq, desc, by: me.name, time: stamp_(cfg), status: 'open', updatedAt: ts_() }, cfg));
     return { id };
   },
 
-  setFaultStatus(p) {
+  setFaultStatus(p, me) {
+    need_(me, 'faultFix');
     const status = reqEnum_(p.status, FAULT_STATUS);
     const t = readTable_('faults');
     update_(t, findById_(t, p.id), { status, updatedAt: ts_() });
   },
 
-  logUse(p) {
+  logUse(p, me) {
     const { t, cfg } = readCfg_();
     const item = cfg.consumables.find(c => c.id === p.item);
     if (!item) throw new ApiError('ITEM_NOT_FOUND', '耗材項目不存在');
@@ -232,10 +309,11 @@ const ACTIONS = {
 
     // 扣庫存與寫 UseLog 在同一個鎖內
     writeCfg_(t, { consumables: cfg.consumables.map(c => c.id === item.id ? Object.assign({}, c, { stock: stock - qty }) : c) });
-    append_(readTable_('useLog'), decorate_('useLog', { who: String(p.who || ''), item: item.id, qty, time: stamp_(cfg) }, cfg));
+    append_(readTable_('useLog'), decorate_('useLog', { who: me.name, item: item.id, qty, time: stamp_(cfg) }, cfg));
   },
 
-  restock(p) {
+  restock(p, me) {
+    need_(me, 'restock');
     const { t, cfg } = readCfg_();
     const item = cfg.consumables.find(c => c.id === p.item);
     if (!item) throw new ApiError('ITEM_NOT_FOUND', '耗材項目不存在');
@@ -243,12 +321,18 @@ const ACTIONS = {
     writeCfg_(t, { consumables: cfg.consumables.map(c => c.id === item.id ? Object.assign({}, c, { stock }) : c) });
   },
 
-  setAttendance(p) {
+  setAttendance(p, me) {
     const date = reqDate_(p.date), sid = reqStr_(p.sid);
     if (typeof p.present !== 'boolean') throw new ApiError('BAD_PAYLOAD', '參數不完整');
+    const cfg = readCfg_().cfg;
+    // 只能點自己負責的班別（班別的負責職務 = 自己的角色）；attendance 權限可點全部
+    const stu = cfg.students.find(s => s.id === sid);
+    const cls = stu && cfg.classes.find(c => c.id === stu.group);
+    if (!can_(me, 'attendance') && !(cls && cls.leadRole === me.role))
+      throw new ApiError('FORBIDDEN', '只能為自己負責的班別點名');
     const t = readTable_('attendance');
     const row = t.rows.find(r => normDate_(r.date) === date && r.sid === sid);
-    const rec = decorate_('attendance', { date, sid, present: p.present, updatedAt: ts_() }, readCfg_().cfg);
+    const rec = decorate_('attendance', { date, sid, present: p.present, updatedAt: ts_() }, cfg);
     if (row) update_(t, row, rec); else append_(t, rec);
   },
 
@@ -260,19 +344,20 @@ const ACTIONS = {
     writeCfg_(readCfg_().t, { closing });
   },
 
-  setConfig(p) {
+  setConfig(p, me) {
     const { t, cfg } = readCfg_();
-    const entries = checkCfgEntries_([{ key: p.key, value: p.value }], cfg);
+    const entries = checkCfgEntries_([{ key: p.key, value: p.value }], cfg, me);
     writeCfg_(t, entries);
   },
 
-  setConfigBatch(p) {
+  setConfigBatch(p, me) {
     if (!Array.isArray(p.entries) || !p.entries.length) throw new ApiError('BAD_PAYLOAD', '參數不完整');
     const { t, cfg } = readCfg_();
-    writeCfg_(t, checkCfgEntries_(p.entries, cfg));   // 全部驗證通過才寫入
+    writeCfg_(t, checkCfgEntries_(p.entries, cfg, me));   // 全部驗證通過才寫入
   },
 
-  deleteSlot(p) {
+  deleteSlot(p, me) {
+    need_(me, 'slots');
     const id = reqStr_(p.id);
     const { t, cfg } = readCfg_();
     const sl = cfg.slots.find(s => s.id === id);
@@ -281,19 +366,128 @@ const ACTIONS = {
     writeCfg_(t, { slots: cfg.slots.filter(s => s.id !== id) });
   },
 
-  resetDemo() {
+  resetDemo(p, me) {
+    need_(me, 'reset');
     seedAll_();
   }
 };
 
+/* ════════════════════════ 帳號與權限 ════════════════════════ */
+
+// token → 目前登入者。每次都重讀帳號分頁，所以停用帳號或改角色會立即生效
+function auth_(token) {
+  const cache = CacheService.getScriptCache();
+  const user = token && cache.get('s:' + token);
+  if (!user) throw new ApiError('AUTH_REQUIRED', '請先登入');
+  const acc = readTable_('accounts').rows.find(r => r.user === user);
+  if (!acc || acc.active === 'FALSE' || !ROLES[acc.role]) {
+    cache.remove('s:' + token);
+    throw new ApiError('AUTH_REQUIRED', '帳號已停用，請洽系統管理員');
+  }
+  cache.put('s:' + token, user, SESSION_HOURS * 3600);   // 有操作就延長
+  return { user: acc.user, name: acc.name || acc.user, role: acc.role, sid: acc.sid };
+}
+
+function userOf_(a) {
+  return { user: a.user, name: a.name || a.user, role: a.role, sid: a.sid || '' };
+}
+
+const can_ = (me, perm) => ROLES[me.role].perms.includes(perm);
+function need_(me, perm) {
+  if (!can_(me, perm)) throw new ApiError('FORBIDDEN', '你的帳號沒有此操作的權限');
+}
+// 學員只能替自己操作；有 perm 權限的人可以代任何學員操作
+function selfOr_(me, sid, perm, msg) {
+  if (can_(me, perm)) return;
+  if (me.role !== 'student') throw new ApiError('FORBIDDEN', '你的帳號沒有此操作的權限');
+  if (!me.sid) throw new ApiError('FORBIDDEN', '此帳號未設定學員代號，請洽系統管理員');
+  if (me.sid !== sid) throw new ApiError('FORBIDDEN', msg);
+}
+
+// 讀帳號分頁，順便把「設定新密碼」欄的明碼加密後清空
+function readAccounts_() {
+  const t = readTable_('accounts');
+  t.rows.forEach(r => { if (r.newpw) update_(t, r, { pw: hashPw_(r.newpw), newpw: '' }); });
+  return t;
+}
+
+// 加鹽 SHA-256 迭代 200 次；存成「鹽$雜湊」
+function hashPw_(pw, salt) {
+  salt = salt || Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+  let h = salt + '|' + pw;
+  for (let i = 0; i < 200; i++) {
+    h = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, h, Utilities.Charset.UTF_8)
+      .map(b => ((b + 256) % 256).toString(16).padStart(2, '0')).join('');
+  }
+  return salt + '$' + h;
+}
+function checkPw_(pw, stored) {
+  return !!stored && hashPw_(pw, String(stored).split('$')[0]) === stored;
+}
+
+function randomPw_(len) {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const hex = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  let out = '';
+  for (let i = 0; i < len; i++) out += chars[parseInt(hex.substr(i * 2, 2), 16) % chars.length];
+  return out;
+}
+
+// 試算表上方選單
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('人培室系統')
+    .addItem('建立學員帳號（依學員名單）', 'createStudentAccounts')
+    .addItem('重新套用排版', 'setup')
+    .addToUi();
+}
+
+// 在「設定新密碼」欄輸入密碼後立即加密（簡易觸發器）
+function onEdit(e) {
+  try {
+    if (e && e.range && e.range.getSheet().getName() === SHEETS.accounts.name) readAccounts_();
+  } catch (x) {}
+}
+
+// 替學員名單中還沒有帳號的人建立帳號（帳號 = 學員代號），初始密碼只顯示這一次
+function createStudentAccounts() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const cfg = readCfg_().cfg, t = readAccounts_();
+    const has = new Set(t.rows.map(r => r.sid).filter(Boolean));
+    const taken = new Set(t.rows.map(r => r.user.toLowerCase()));
+    const lines = [];
+    cfg.students.filter(s => !has.has(s.id)).forEach(s => {
+      let user = s.id;
+      for (let n = 2; taken.has(user.toLowerCase()); n++) user = s.id + '-' + n;
+      taken.add(user.toLowerCase());
+      const pw = randomPw_(6);
+      append_(t, { user, name: s.name, role: 'student', sid: s.id, active: true, pw: hashPw_(pw) });
+      lines.push(`${user}\t${s.name}\t${pw}`);
+    });
+    showOnce_('學員帳號已建立（初始密碼只顯示這一次，請複製保存）',
+      lines.length ? '帳號\t姓名\t初始密碼\n' + lines.join('\n') : '所有學員都已有帳號，未新增。');
+    return lines.length;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 從試算表選單執行時跳出對話框；從 GAS 編輯器執行時寫入執行記錄
+function showOnce_(title, text) {
+  Logger.log(title + '\n' + text);
+  try { SpreadsheetApp.getUi().alert(title, text, SpreadsheetApp.getUi().ButtonSet.OK); } catch (x) {}
+}
+
 /* ════════════════════════ 設定驗證 ════════════════════════ */
 
-function checkCfgEntries_(list, cfg) {
+function checkCfgEntries_(list, cfg, me) {
   const out = {};
   list.forEach(en => {
     if (!en || typeof en !== 'object') throw new ApiError('BAD_PAYLOAD', '參數不完整');
     const key = en.key, v = en.value, type = Object.prototype.hasOwnProperty.call(CFG_TYPES, key) ? CFG_TYPES[key] : null;
     if (!type) throw new ApiError('BAD_CONFIG_KEY', '不允許的設定項');
+    need_(me, key === 'slots' ? 'slots' : 'config');
     const bad = () => { throw new ApiError('BAD_PAYLOAD', `設定「${key}」格式錯誤`); };
     if (type === 'str' && typeof v !== 'string') bad();
     if (type === 'date' && !(v === '' || (typeof v === 'string' && isDate_(v)))) bad();
@@ -571,9 +765,16 @@ function setup() {
     }
     format_(k, sh);
   });
-  const empty = Object.keys(SHEETS).every(k => readTable_(k).rows.length === 0);
-  if (empty) { seedAll_(); Logger.log('已建立 6 張分頁並寫入示範資料'); }
+  const empty = DATA_TABLES.every(k => readTable_(k).rows.length === 0);
+  if (empty) { seedAll_(); Logger.log('已建立資料分頁並寫入示範資料'); }
   else Logger.log('分頁已存在且有資料，未覆寫；已重新套用排版');
+
+  const acc = readAccounts_();
+  if (!acc.rows.some(r => r.role === 'admin' && r.active !== 'FALSE')) {
+    const pw = randomPw_(10);
+    append_(acc, { user: 'admin', name: '系統管理員', role: 'admin', active: true, pw: hashPw_(pw) });
+    showOnce_('已建立系統管理員帳號（密碼只顯示這一次，登入後請立即修改）', `帳號：admin\n密碼：${pw}`);
+  }
 }
 
 // 舊版英文標題（與程式內部名稱相同）換成中文；資料裡的英文狀態仍可讀取，重設示範資料後全面換成中文
@@ -672,7 +873,7 @@ function seedAll_() {
     config: Object.keys(cfg).map(key => ({ key, value: JSON.stringify(cfg[key]) }))
   };
 
-  Object.keys(SHEETS).forEach(k => {
+  DATA_TABLES.forEach(k => {
     const t = readTable_(k);
     const last = t.sh.getLastRow();
     if (last > 1) t.sh.getRange(2, 1, last - 1, Math.max(t.width, 1)).clearContent();

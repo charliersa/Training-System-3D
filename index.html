@@ -39,17 +39,25 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
   <sc-if value="{{ showMenu }}" hint-placeholder-val="{{ true }}">
   <div style="display:flex;flex-direction:column;gap:8px">
     <div style="font-size:11px;color:#8C8173;letter-spacing:.12em">目前身分</div>
+    <sc-if value="{{ showRoleSwitch }}" hint-placeholder-val="{{ true }}">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-      <sc-for list="{{ roleButtons }}" as="r" hint-placeholder-count="4">
+      <sc-for list="{{ roleButtons }}" as="r" hint-placeholder-count="6">
         <button onClick="{{ r.onClick }}" style="padding:8px 6px;border:1px solid #CFC5B3;background:{{ r.bg }};color:{{ r.fg }};font-size:13px;font-weight:500;cursor:pointer">{{ r.label }}</button>
       </sc-for>
     </div>
-    <sc-if value="{{ isStudent }}" hint-placeholder-val="{{ false }}">
+    </sc-if>
+    <sc-if value="{{ showMeSelect }}" hint-placeholder-val="{{ false }}">
       <select value="{{ me }}" onChange="{{ onMe }}" style="width:100%;padding:8px;background:#F6F1E7;color:#3B3530;border:1px solid #CFC5B3;font-size:13px">
         <sc-for list="{{ students }}" as="st"><option value="{{ st.id }}">{{ st.label }}</option></sc-for>
       </select>
     </sc-if>
-    <div style="font-size:12px;color:#8C8173">登入為：<span style="color:#3B3530">{{ currentName }}</span></div>
+    <div style="font-size:12px;color:#8C8173">登入為：<span style="color:#3B3530">{{ currentName }}</span><sc-if value="{{ roleLabel }}"><span style="margin-left:6px;padding:1px 6px;background:#3B3530;color:#FBF8F2;font-size:11px">{{ roleLabel }}</span></sc-if></div>
+    <sc-if value="{{ showAccount }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:4px">
+        <button onClick="{{ openPw }}" style="flex:1;padding:7px 6px;border:1px solid #CFC5B3;background:transparent;color:#5A5048;font-size:12px;cursor:pointer">修改密碼</button>
+        <button onClick="{{ logout }}" style="flex:1;padding:7px 6px;border:1px solid #CFC5B3;background:transparent;color:#5A5048;font-size:12px;cursor:pointer">登出</button>
+      </div>
+    </sc-if>
   </div>
   <nav style="display:flex;flex-direction:column;gap:2px">
     <sc-for list="{{ nav }}" as="n" hint-placeholder-count="9">
@@ -62,7 +70,7 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
   <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;font-size:11px;color:#A89C8A">
     <div>示範日期 {{ demoDate }}</div>
     <div style="color:{{ syncColor }}">{{ syncLabel }}</div>
-    <button onClick="{{ reset }}" style="padding:6px;border:1px solid #CFC5B3;background:transparent;color:#8C8173;font-size:11px;cursor:pointer">重設全部示範資料</button>
+    <sc-if value="{{ canReset }}" hint-placeholder-val="{{ true }}"><button onClick="{{ reset }}" style="width:100%;padding:6px;border:1px solid #CFC5B3;background:transparent;color:#8C8173;font-size:11px;cursor:pointer">重設全部示範資料</button></sc-if>
   </div>
   </sc-if>
 </aside>
@@ -398,7 +406,7 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
     <sc-if value="{{ canResetCfg }}" hint-placeholder-val="{{ true }}"><button onClick="{{ resetCfg }}" style="padding:8px 14px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:13px;cursor:pointer">還原預設設定</button></sc-if>
   </header>
   <sc-if value="{{ studentRONotice }}" hint-placeholder-val="{{ false }}">
-    <div style="background:#FBF8F2;border:1px dashed #B8AC98;padding:14px 18px;font-size:14px">此頁籤學員僅可檢視。請切至「自由編排時段」編排時程，或切換為管理人員、培訓專員或輔導員以編輯其餘設定。</div>
+    <div style="background:#FBF8F2;border:1px dashed #B8AC98;padding:14px 18px;font-size:14px">{{ roNoticeText }}</div>
   </sc-if>
   <sc-if value="{{ studentEditNotice }}" hint-placeholder-val="{{ false }}">
     <div style="background:#F3E6CF;border:1px solid #D8C49A;padding:14px 18px;font-size:14px;color:#8A6A3A">⚠ 時段定義是全體共用的設定，你的修改會影響所有人的預約表。已有預約紀錄的時段無法刪除。</div>
@@ -481,6 +489,42 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
   </div>
 </sc-if>
 
+<sc-if value="{{ pwOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;background:rgba(59,53,48,.45);z-index:30;display:grid;place-items:center;padding:16px">
+    <div style="width:min(400px,100%);background:#FBF8F2;border:1px solid #8C8173;display:flex;flex-direction:column">
+      <div style="padding:18px 20px;border-bottom:1px solid #D6CCBA;display:flex;flex-direction:column;gap:4px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px;color:#857A6C">PASSWORD</span><span style="font-size:20px;font-weight:600">修改密碼</span></div>
+      <div style="padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#857A6C">目前密碼<input type="password" value="{{ pwCur }}" onChange="{{ onPwCur }}" style="width:100%;padding:10px 12px;border:1px solid #D6CCBA;font-size:15px;color:#3B3530;background:#FFFFFF"></label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#857A6C">新密碼（至少 6 個字元）<input type="password" value="{{ pwNew }}" onChange="{{ onPwNew }}" style="width:100%;padding:10px 12px;border:1px solid #D6CCBA;font-size:15px;color:#3B3530;background:#FFFFFF"></label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#857A6C">再輸入一次新密碼<input type="password" value="{{ pwNew2 }}" onChange="{{ onPwNew2 }}" style="width:100%;padding:10px 12px;border:1px solid #D6CCBA;font-size:15px;color:#3B3530;background:#FFFFFF"></label>
+        <sc-if value="{{ pwError }}"><div style="font-size:13px;color:#9A4A3A">{{ pwError }}</div></sc-if>
+      </div>
+      <div style="padding:0 20px 18px;display:flex;gap:8px;justify-content:flex-end">
+        <button onClick="{{ closePw }}" style="padding:10px 16px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:14px;cursor:pointer">取消</button>
+        <button onClick="{{ savePw }}" disabled="{{ authBusy }}" style="padding:10px 16px;border:none;background:#B5654A;color:#fff;font-size:14px;font-weight:600;cursor:pointer">儲存</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ needLogin }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;z-index:35;overflow:auto;background:#F3EEE3;background-image:radial-gradient(#E2D9C7 .8px,transparent .8px);background-size:20px 20px;display:grid;place-items:center;padding:16px">
+    <div style="width:min(380px,100%);background:#FBF8F2;border:1px solid #8C8173;border-top:4px solid #B5654A;display:flex;flex-direction:column">
+      <div style="padding:22px 24px;border-bottom:1px solid #D6CCBA;display:flex;align-items:center;gap:12px">
+        <div style="min-width:40px;height:40px;padding:0 6px;background:#B5654A;display:grid;place-items:center;font-family:'Cormorant Garamond','Noto Serif TC',serif;font-weight:600;font-size:16px;color:#fff">{{ cfg.labBadge }}</div>
+        <div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:19px;letter-spacing:.04em">{{ cfg.labName }}</span><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px;letter-spacing:.2em;color:#8C8173">SIGN IN</span></div>
+      </div>
+      <div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:14px">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#857A6C">帳號<input value="{{ loginUser }}" onChange="{{ onLoginUser }}" style="width:100%;padding:10px 12px;border:1px solid #D6CCBA;font-size:15px;color:#3B3530;background:#FFFFFF"></label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#857A6C">密碼<input type="password" value="{{ loginPw }}" onChange="{{ onLoginPw }}" onKeyDown="{{ onLoginKey }}" style="width:100%;padding:10px 12px;border:1px solid #D6CCBA;font-size:15px;color:#3B3530;background:#FFFFFF"></label>
+        <sc-if value="{{ loginError }}"><div style="font-size:13px;color:#9A4A3A">{{ loginError }}</div></sc-if>
+        <button onClick="{{ doLogin }}" disabled="{{ authBusy }}" style="padding:12px;border:none;background:#B5654A;color:#fff;font-weight:600;font-size:15px;cursor:pointer" style-hover="background:#9A513A">{{ loginBtn }}</button>
+        <div style="font-size:12px;color:#857A6C;line-height:1.7">帳號由系統管理員建立；忘記密碼請洽系統管理員重設。</div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
 <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
   <div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#3B3530;color:#fff;padding:12px 20px;font-size:14px;z-index:40;animation:toastIn .2s ease-out;border-bottom:3px solid #B5654A">{{ toast }}</div>
 </sc-if>
@@ -495,7 +539,15 @@ const PUSH_MS = 800;     // 後台設定停止輸入 800ms 後才推送
 // 後台可推送的設定鍵，需與 Code.gs 的 CFG_TYPES 一致
 const CFG_PUSH = ['labBadge','labName','labSub','rulesTitle','checkoutItems','closingItems','semStart','semEnd',
   'trainDay','capacity','noShowLimit','roles','classes','slots','students','equipment','consumables','rules'];
+// 固定角色與權限，需與 Code.gs 的 ROLES 一致（伺服器端會再檢查一次）
+const ROLE_PERMS = {
+  admin:['bookings','leaves','attendance','faultFix','restock','config','slots','reset'],
+  manager:['bookings','faultFix','restock'], trainer:['leaves'], tutor:['faultFix'],
+  editor:['config','slots'], student:['slots']
+};
+const FIXED_ROLE_LABELS = {admin:'系統管理員', editor:'編輯人員', student:'學員'};
 const KEY = 'lab3d-mgmt-v2';
+const SESSION_KEY = 'lab3d-session';
 let TODAY = '2026-09-30';   // 連線時以伺服器回傳的 today 為準
 const DOW = ['日','一','二','三','四','五','六'];
 const EDOW = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
@@ -584,7 +636,8 @@ const STUDENT_TABS = ['slots'];
 // transient (non-persisted) UI state - shared by first load and 「重設全部示範資料」
 const LEGACY_SLOTS = {s1:'p2',s2:'p6',s3:'p9'};
 function freshUI(){ return {week:0, wedDate:'', slotSel:null, checkoutId:null, checks:{}, toast:'',
-  adminTab:'basic', leaveDate:'', leaveReason:'', faultEq:'', faultDesc:'', useItem:'', useQty:1}; }
+  adminTab:'basic', leaveDate:'', leaveReason:'', faultEq:'', faultDesc:'', useItem:'', useQty:1,
+  loginUser:'', loginPw:'', loginError:'', authBusy:false, pwOpen:false, pwCur:'', pwNew:'', pwNew2:'', pwError:''}; }
 
 class Component extends DCLogic {
   state = (() => {
@@ -594,18 +647,21 @@ class Component extends DCLogic {
     if(saved.cfg && !saved.cfg.slotsV2) delete saved.cfg.slots;
     // one-shot heal of pre-v2 slot ids; persisted by componentDidUpdate so it never has to run again
     if(Array.isArray(saved.bookings)) saved.bookings=saved.bookings.map(b=>LEGACY_SLOTS[b.slot]?{...b,slot:LEGACY_SLOTS[b.slot]}:b);
-    return Object.assign(base, saved, {cfg:Object.assign(seedCfg(), saved.cfg||{})}, freshUI());
+    let session=null;
+    if(API_URL){ try { session = JSON.parse(localStorage.getItem(SESSION_KEY)) || null; } catch(e) {} }
+    return Object.assign(base, saved, {cfg:Object.assign(seedCfg(), saved.cfg||{})}, freshUI(), {session});
   })();
   componentDidMount(){ this._rs=()=>{const n=window.innerWidth<840; if(n!==this.state.narrow) this.setState({narrow:n,menuOpen:false});}; this._rs(); window.addEventListener('resize',this._rs);
     if(API_URL&&!this._poll){
+      if(this.state.session) this.pull();
       this._vis=()=>{ if(document.visibilityState==='visible') this.pull(); else this.flushCfg(); };
       document.addEventListener('visibilitychange',this._vis); window.addEventListener('focus',this._vis);
       this._poll=setInterval(()=>{ if(document.visibilityState==='visible') this.pull(); },POLL_MS);
-      this.pull();
     } }
   componentWillUnmount(){ window.removeEventListener('resize',this._rs);
     if(this._poll){ clearInterval(this._poll); this._poll=null; document.removeEventListener('visibilitychange',this._vis); window.removeEventListener('focus',this._vis); } }
-  componentDidUpdate(){ const o={}; DATA_KEYS.forEach(k=>o[k]=this.state[k]); try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){} }
+  // 連線模式未登入時不寫本機快取（登出後不留下學員名單等資料）
+  componentDidUpdate(){ if(API_URL&&!this.state.session) return; const o={}; DATA_KEYS.forEach(k=>o[k]=this.state[k]); try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){} }
   flash(t){ this.setState({toast:t}); clearTimeout(this._t); this._t=setTimeout(()=>this.setState({toast:''}),2200); }
   setB(id, status, msg){ this.setState(s=>({bookings:s.bookings.map(b=>b.id===id?{...b,status}:b)})); if(msg) this.flash(msg); this.call('setBookingStatus',{id,status}); }
   // push=false：由專屬 action 處理的變更（補貨、取用），不走後台設定推送
@@ -614,25 +670,68 @@ class Component extends DCLogic {
   // ───── 伺服器同步：畫面先動（樂觀更新），伺服器回應後整包覆蓋成權威狀態 ─────
   // 寫入依序送出；全部回來後才套用最後一次回應，避免較早的回應蓋掉較晚的樂觀更新
   call(action, params){
-    if(!API_URL) return;
+    if(!API_URL||!this.state.session) return;
+    const token=this.state.session.token;
     this._seq=(this._seq||0)+1; this._inflight=(this._inflight||0)+1; this.setState({syncing:true});
     this._q=(this._q||Promise.resolve())
-      .then(()=>fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,...params})}))
+      .then(()=>fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,token,...params})}))
       .then(r=>r.json())
-      .then(res=>{ if(!res.ok) this.flash(res.message||'伺服器拒絕此操作'); if(res.data) this._latest=res.data; this.setState({online:true}); },
+      .then(res=>{ if(res.error==='AUTH_REQUIRED'){ this.signedOut(res.message); return; }
+        if(!res.ok) this.flash(res.message||'伺服器拒絕此操作'); if(res.data) this._latest=res.data; this.setState({online:true}); },
             ()=>{ this._lost=true; this.setState({online:false}); this.flash('無法連線 Google Sheet，畫面將還原為伺服器資料'); })
       .then(()=>{ if(--this._inflight) return;
         if(this._latest) this.applyServer(this._latest); this._latest=null; this.setState({syncing:false});
         if(this._lost){ this._lost=false; this.pull(); } });
   }
   pull(){
-    if(!API_URL||this._inflight||this._pulling) return;
+    if(!API_URL||!this.state.session||this._inflight||this._pulling) return;
     const seq=this._seq||0; this._pulling=true;
-    fetch(API_URL+'?action=load').then(r=>r.json())
+    fetch(API_URL+'?action=load&token='+encodeURIComponent(this.state.session.token)).then(r=>r.json())
       .then(res=>{ this._pulling=false; this.setState({online:true});
+        if(res.error==='AUTH_REQUIRED'){ this.signedOut(res.message); return; }
+        // 角色或姓名在 Sheet 被改掉時同步更新
+        if(res.ok&&res.user) this.saveSession({...this.state.session,...res.user});
         // 拉取期間若有新的寫入送出，這份資料已過期，交給寫入的回應處理
         if(!res.ok) this.flash(res.message||'讀取失敗'); else if(seq===(this._seq||0)&&!this._inflight) this.applyServer(res.data); },
         ()=>{ this._pulling=false; this.setState({online:false}); });
+  }
+  // ───── 登入／登出 ─────
+  saveSession(session){ this.setState({session}); try{ session?localStorage.setItem(SESSION_KEY,JSON.stringify(session)):localStorage.removeItem(SESSION_KEY); }catch(e){} }
+  // 清掉本機快取的資料，避免下一位使用者在登入前看到
+  signedOut(msg){
+    clearTimeout(this._pushT); this._dirty={}; this._latest=null;
+    try{ localStorage.removeItem(KEY); }catch(e){}
+    this.saveSession(null);
+    this.setState({bookings:[],leaves:[],attendance:{},faults:[],useLog:[],closing:{},slotSel:null,checkoutId:null,pwOpen:false,loginError:msg||''});
+  }
+  post(body){ return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)}).then(r=>r.json()); }
+  login(){
+    const user=this.state.loginUser.trim(), password=this.state.loginPw;
+    if(!user||!password){ this.setState({loginError:'請輸入帳號與密碼'}); return; }
+    this.setState({authBusy:true,loginError:''});
+    this.post({action:'login',user,password}).then(res=>{
+      this.setState({authBusy:false});
+      if(!res.ok){ this.setState({loginError:res.message||'登入失敗'}); return; }
+      this.saveSession({token:res.token,...res.user});
+      this.setState({loginPw:'',page:'dash',role:res.user.role});
+      this.applyServer(res.data);
+    },()=>this.setState({authBusy:false,loginError:'無法連線伺服器，請稍後再試'}));
+  }
+  logout(){
+    const s=this.state.session; if(s) this.post({action:'logout',token:s.token}).catch(()=>{});
+    this.signedOut(''); this.setState({loginUser:''});
+  }
+  changePw(){
+    const st=this.state;
+    if(st.pwNew.length<6){ this.setState({pwError:'新密碼至少 6 個字元'}); return; }
+    if(st.pwNew!==st.pwNew2){ this.setState({pwError:'兩次輸入的新密碼不一致'}); return; }
+    this.setState({authBusy:true,pwError:''});
+    this.post({action:'changePassword',token:st.session.token,current:st.pwCur,next:st.pwNew}).then(res=>{
+      this.setState({authBusy:false});
+      if(res.error==='AUTH_REQUIRED'){ this.signedOut(res.message); return; }
+      if(!res.ok){ this.setState({pwError:res.message||'修改失敗'}); return; }
+      this.setState({pwOpen:false,pwCur:'',pwNew:'',pwNew2:''}); this.flash('密碼已更新');
+    },()=>this.setState({authBusy:false,pwError:'無法連線伺服器，請稍後再試'}));
   }
   applyServer(d){
     if(!d) return;
@@ -655,7 +754,10 @@ class Component extends DCLogic {
 
   renderVals(){
     const s=this.state, cfg=s.cfg, cap=Number(cfg.capacity)||1, limit=Math.max(1,Number(cfg.noShowLimit)||1), TD=Number(cfg.trainDay);
-    const role=s.role, isStudent=role==='student', isMgr=role==='manager', isTrainer=role==='trainer', isTutor=role==='tutor', canEdit=!isStudent;
+    // 連線模式：身分來自登入帳號；離線示範：用左側按鈕切換
+    const session=API_URL?s.session:null, role=API_URL?((session||{}).role||''):s.role;
+    const can=p=>(ROLE_PERMS[role]||[]).includes(p);
+    const isStudent=role==='student', isMgr=can('bookings'), isTrainer=can('leaves'), canEdit=can('config');
     const STU=cfg.students, SLOTS=cfg.slots.slice().sort((a,b)=>a.start.localeCompare(b.start)), CLS=cfg.classes.slice().sort((a,b)=>a.start.localeCompare(b.start));
     const roleOf=k=>cfg.roles.find(r=>r.key===k)||{title:k,people:''};
     const rt={trainer:roleOf('trainer').title,tutor:roleOf('tutor').title,manager:roleOf('manager').title};
@@ -669,8 +771,9 @@ class Component extends DCLogic {
     const count=(d,sl)=>bookings.filter(b=>b.date===d&&b.slot===sl&&live(b)).length;
     const clashes=(d,sl)=>dow(d)===TD?CLS.filter(c=>overlap(sl,c)):[];
     const slotById=id=>SLOTS.find(x=>x.id===id)||{start:'',end:''};
-    const me=stuIds.has(s.me)?s.me:(STU[0]||{}).id;
-    const currentName=isStudent?name(me):isMgr?roleOf('manager').people:isTrainer?roleOf('trainer').people:roleOf('tutor').people;
+    const me=session?(session.sid||''):stuIds.has(s.me)?s.me:(STU[0]||{}).id;
+    const roleLabel=r=>FIXED_ROLE_LABELS[r]||roleOf(r).title;
+    const currentName=session?session.name:isStudent?name(me):FIXED_ROLE_LABELS[role]||roleOf(role).people;
     const go=p=>()=>{this.setState({page:p,slotSel:null,menuOpen:false}); if(s.narrow) window.scrollTo(0,0);};
     const tag=k=>({tag:T[k].t,bg:T[k].bg,fg:T[k].fg});
     const eqByKey=k=>cfg.equipment.find(e=>e.key===k);
@@ -688,7 +791,7 @@ class Component extends DCLogic {
     const NAV=[['dash','今日總覽',''],['staff','人員編制',''],['wed',trainName,isTrainer&&pendingLeaves?pendingLeaves:''],['book','自由預約',isMgr&&pendingAll?pendingAll:''],
       ['check','簽到簽退',isMgr&&todayOpen?todayOpen:''],['equip','設備耗材',openFaults||''],['record','考核紀錄',''],['rules','管理辦法',''],['admin','後台設定','']];
     const nav=NAV.map(([id,label,badge],i)=>({label,badge:badge?String(badge):'',no:pad(i+1),onClick:go(id),bg:s.page===id?'#3B3530':'transparent',fg:s.page===id?'#FBF8F2':'#5A5048'}));
-    const roleButtons=[['student','學員'],['manager',rt.manager],['trainer',rt.trainer],['tutor',rt.tutor]].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
+    const roleButtons=[['student','學員'],['manager',rt.manager],['trainer',rt.trainer],['tutor',rt.tutor],['editor','編輯人員'],['admin','系統管理員']].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
 
     // dashboard
     const stats=[
@@ -715,7 +818,7 @@ class Component extends DCLogic {
     const wedDate=weds.includes(s.wedDate)?s.wedDate:(weds.find(d=>d>=TODAY)||weds[0]||TODAY);
     const wedTabs=weds.map((d,i)=>({label:md(d),week:'第'+(i+1)+'週',onClick:()=>this.setState({wedDate:d}),bg:wedDate===d?'#3B3530':d===TODAY?'#F3E6CF':'#FBF8F2',fg:wedDate===d?'#FBF8F2':'#3B3530'}));
     const classes=CLS.map((c,i)=>{
-      const canMark=c.leadRole===role;
+      const canMark=c.leadRole===role||can('attendance');
       let here=0,off=0;
       const members=STU.filter(x=>x.group===c.id);
       const roster=members.map(x=>{
@@ -781,7 +884,7 @@ class Component extends DCLogic {
       slotVals={slotOpen:true,slotTitle:`週${DOW[dow(date)]} ${sl.name||''} ${sl.start}–${sl.end}`,slotTitleSub:date.replace(/-/g,'.'),slotCount:String(n),slotRows:rows,slotEmpty:!rows.length,slotNote:note,
         slotCanBook:!already&&!note,slotCanCancel:!!mineB,
         // guard here too, not only in the template, so a stale handler cannot bypass the rules
-        bookSlot:()=>{if(!isStudent||already||note)return; this.setState(st=>({bookings:[...st.bookings,{id:st.nextId,sid:me,date,slot,status:'pending'}],nextId:st.nextId+1}));this.flash(`已送出預約，待${rt.manager}確認`);this.call('book',{sid:me,date,slot});},
+        bookSlot:()=>{if(!isStudent||!me||already||note)return; this.setState(st=>({bookings:[...st.bookings,{id:st.nextId,sid:me,date,slot,status:'pending'}],nextId:st.nextId+1}));this.flash(`已送出預約，待${rt.manager}確認`);this.call('book',{sid:me,date,slot});},
         cancelSlot:()=>{if(!mineB)return; this.setState(st=>({bookings:st.bookings.filter(b=>b.id!==mineB.id)}));this.flash('已取消預約');this.call('cancelBooking',{id:mineB.id});}};
     }
 
@@ -802,10 +905,10 @@ class Component extends DCLogic {
     const faultOpen=k=>faultsLive.some(f=>f.eq===k&&f.status==='open');
     const equipment=cfg.equipment.map(e=>{const bad=faultOpen(e.key);return {code:e.code,type:e.type,tag:bad?'故障・停用':'正常',bg:bad?'#9A4A3A':'#FBF8F2',fg:bad?'#FBF8F2':'#3B3530',sub:bad?'#EBCFC4':'#857A6C'};});
     const faultEq=eqByKey(s.faultEq)?s.faultEq:(cfg.equipment[0]||{}).key||'';
-    const faults=faultsLive.slice().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||b.id-a.id).map(f=>({code:eqByKey(f.eq).code,desc:f.desc,by:f.by,time:f.time,...tag(f.status),canResolve:(isMgr||isTutor)&&f.status==='open',
+    const faults=faultsLive.slice().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)||b.id-a.id).map(f=>({code:eqByKey(f.eq).code,desc:f.desc,by:f.by,time:f.time,...tag(f.status),canResolve:can('faultFix')&&f.status==='open',
       resolve:()=>{this.setState(st=>({faults:st.faults.map(x=>x.id===f.id?{...x,status:'fixed'}:x)}));this.flash(eqByKey(f.eq).code+' 已標記修復');this.call('setFaultStatus',{id:f.id,status:'fixed'});}}));
     const setCons=(id,fn)=>this.setCfg(c=>({...c,consumables:c.consumables.map(x=>x.id===id?fn(x):x)}),false);
-    const consumables=cfg.consumables.map(c=>{const st=Number(c.stock)||0,mn=Number(c.min)||0,mx=Math.max(1,Number(c.max)||1);return {name:c.name,unit:c.unit,stock:String(st),min:String(mn),stepLabel:(Number(c.step)||1)+' '+c.unit,low:st<mn,fill:Math.min(100,st/mx*100)+'%',bar:st<mn?'#9A4A3A':'#3B3530',canRestock:isMgr,
+    const consumables=cfg.consumables.map(c=>{const st=Number(c.stock)||0,mn=Number(c.min)||0,mx=Math.max(1,Number(c.max)||1);return {name:c.name,unit:c.unit,stock:String(st),min:String(mn),stepLabel:(Number(c.step)||1)+' '+c.unit,low:st<mn,fill:Math.min(100,st/mx*100)+'%',bar:st<mn?'#9A4A3A':'#3B3530',canRestock:can('restock'),
       restock:()=>{setCons(c.id,x=>({...x,stock:(Number(x.stock)||0)+(Number(x.step)||1)}));this.flash(c.name+' 已補貨');this.call('restock',{item:c.id});}};});
     const useItem=cfg.consumables.some(c=>c.id===s.useItem)?s.useItem:(cfg.consumables[0]||{}).id||'';
     const cName=id=>(cfg.consumables.find(c=>c.id===id)||{name:'（已刪除項目）'}).name;
@@ -827,7 +930,7 @@ class Component extends DCLogic {
     const setTop=k=>v=>this.setCfg(c=>({...c,[k]:v}));
     const setItem=(list,i,k)=>v=>this.setCfg(c=>({...c,[list]:c[list].map((x,j)=>j===i?{...x,[k]:v}:x)}));
     // students may edit the free-practice slot definitions; every other list stays staff-only
-    const canEditList=list=>canEdit||STUDENT_LISTS.includes(list);
+    const canEditList=list=>canEdit||(STUDENT_LISTS.includes(list)&&can('slots'));
     const slotUsage=id=>s.bookings.filter(b=>b.slot===id).length;
     const del=(list,i)=>()=>{ if(!canEditList(list)) return;
       if(list==='slots'){ const sl=cfg.slots[i], used=sl?slotUsage(sl.id):0;
@@ -877,13 +980,23 @@ class Component extends DCLogic {
       asidePad:s.narrow?'12px 16px':'24px 18px',asidePos:s.narrow?'sticky':'static',
       narrowSub:s.narrow&&!s.menuOpen?(NAV.find(n=>n[0]===s.page)||[,''])[1]+'・'+currentName:cfg.labSub,
       cfg,rt,trainerPeople:roleOf('trainer').people,roleButtons,nav,isStudent,me,students:STU.map(x=>{const c=clsOf(x.group);return {id:x.id,label:`${x.name}（${c?c.name:'未分班'}）`};}),onMe:e=>this.setState({me:e.target.value}),
-      currentName,reset:()=>{ if(API_URL&&!window.confirm('這會清空 Google Sheet 上所有人的預約、請假、點名與設定，並還原成示範資料。確定嗎？')) return;
+      showRoleSwitch:!API_URL,showMeSelect:!API_URL&&isStudent,showAccount:!!session,roleLabel:session?roleLabel(role):'',
+      canReset:!API_URL||can('reset'),
+      needLogin:!!API_URL&&!session,loginUser:s.loginUser,loginPw:s.loginPw,loginError:s.loginError,authBusy:!!s.authBusy,loginBtn:s.authBusy?'登入中…':'登入',
+      onLoginUser:e=>this.setState({loginUser:e.target.value}),onLoginPw:e=>this.setState({loginPw:e.target.value}),
+      onLoginKey:e=>{ if(e.key==='Enter') this.login(); },doLogin:()=>this.login(),logout:()=>this.logout(),
+      pwOpen:!!s.pwOpen,pwCur:s.pwCur,pwNew:s.pwNew,pwNew2:s.pwNew2,pwError:s.pwError,
+      openPw:()=>this.setState({pwOpen:true,pwCur:'',pwNew:'',pwNew2:'',pwError:''}),closePw:()=>this.setState({pwOpen:false}),
+      onPwCur:e=>this.setState({pwCur:e.target.value}),onPwNew:e=>this.setState({pwNew:e.target.value}),onPwNew2:e=>this.setState({pwNew2:e.target.value}),
+      savePw:()=>this.changePw(),
+      currentName,reset:()=>{ if(!(!API_URL||can('reset'))) return; if(API_URL&&!window.confirm('這會清空 Google Sheet 上所有人的預約、請假、點名與設定，並還原成示範資料。確定嗎？')) return;
         try{localStorage.removeItem(KEY);}catch(e){} clearTimeout(this._pushT); this._dirty={}; this.setState({...seedData(),...freshUI()});this.flash('已重設全部示範資料');this.call('resetDemo',{});},
       resetCfg:()=>{ if(!canEdit) return; this.setCfg(()=>seedCfg()); this.flushCfg(); this.flash('已還原預設設定'); },
       canResetCfg:canEdit,
-      studentEditNotice:isStudent&&STUDENT_TABS.includes(s.adminTab),
-      studentRONotice:isStudent&&!STUDENT_TABS.includes(s.adminTab),
-      adminSubtitle:isStudent?'學員可編排「自由編排時段」，其餘頁籤僅可檢視。':'所有內容即時生效並自動儲存。',
+      studentEditNotice:!canEdit&&can('slots')&&STUDENT_TABS.includes(s.adminTab),
+      studentRONotice:!canEdit&&!(can('slots')&&STUDENT_TABS.includes(s.adminTab)),
+      roNoticeText:can('slots')?'此頁籤僅系統管理員與編輯人員可編輯，你目前僅可檢視。請切至「自由編排時段」編排時程。':'後台設定僅系統管理員與編輯人員可編輯，你目前僅可檢視。',
+      adminSubtitle:canEdit?'所有內容即時生效並自動儲存。':can('slots')?'你可編排「自由編排時段」，其餘頁籤僅可檢視。':'僅可檢視。',
       isDash:s.page==='dash',isStaff:s.page==='staff',isWed:s.page==='wed',isBook:s.page==='book',isCheck:s.page==='check',isEquip:s.page==='equip',isRecord:s.page==='record',isRules:s.page==='rules',isAdmin:s.page==='admin',
       todayHeader:`${TODAY.replace(/-/g,'.')} ${EDOW[dow(TODAY)]}${isTrainToday?' · 固定培訓日':''}`,
       demoDate:`${TODAY.replace(/-/g,'/')}（${DOW[dow(TODAY)]}）`,
