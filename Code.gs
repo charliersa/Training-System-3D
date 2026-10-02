@@ -203,7 +203,7 @@ const ACTIONS = {
     update_(t, acc, { lastLogin: ts_() });
     const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
     cache.put('s:' + token, acc.user, SESSION_HOURS * 3600);
-    return { token, user: userOf_(acc) };
+    return { token, user: userOf_(Object.assign({}, acc, { sid: studentSid_(acc) })) };
   },
 
   logout(p) {
@@ -426,7 +426,16 @@ function auth_(token) {
     throw new ApiError('AUTH_REQUIRED', '帳號已停用，請洽系統管理員');
   }
   cache.put('s:' + token, user, SESSION_HOURS * 3600);   // 有操作就延長
-  return { user: acc.user, name: acc.name || acc.user, role: acc.role, sid: acc.sid };
+  return { user: acc.user, name: acc.name || acc.user, role: acc.role, sid: studentSid_(acc) };
+}
+
+// 學員帳號的「學員代號」：填代號（如 B8）最準；若填的是學員姓名且名單中只有一位同名，也自動對應
+function studentSid_(acc) {
+  if (acc.role !== 'student' || !acc.sid) return acc.sid || '';
+  const stu = readCfg_().cfg.students;
+  if (stu.some(s => s.id === acc.sid)) return acc.sid;
+  const byName = stu.filter(s => s.name === acc.sid);
+  return byName.length === 1 ? byName[0].id : acc.sid;
 }
 
 function userOf_(a) {

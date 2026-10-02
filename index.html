@@ -77,6 +77,9 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
 </aside>
 
 <main style="flex:999 1 600px;min-width:0;padding:48px clamp(18px,4vw,64px) 80px;display:flex;flex-direction:column;gap:36px;max-width:1240px">
+<sc-if value="{{ accountWarn }}" hint-placeholder-val="{{ false }}">
+  <div style="background:#F1DDD5;border:1px solid #D9A99A;color:#9A4A3A;padding:14px 18px;font-size:14px;line-height:1.7">⚠ {{ accountWarn }}</div>
+</sc-if>
 
 <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
   <header style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:1px solid #8C8173;padding-bottom:20px">
@@ -984,7 +987,7 @@ class Component extends DCLogic {
       const clashB=already?null:bookings.filter(b=>b.sid===me&&b.date===date&&b.slot!==slot&&live(b))
         .map(b=>slotById(b.slot)).find(o=>overlap(sl,o));
       let note='';
-      if(!already){ if(mySusp) note=`無故缺席已達 ${limit} 次，預約權限暫停至學期結束`; else if(ended(date,sl)) note='此時段已結束'; else if(!inSem(date)) note=`已超出本學期（至 ${String(cfg.semEnd||'').replace(/-/g,'/')}）`; else if(clashB) note=`與你已預約的 ${clashB.name||''} ${clashB.start}–${clashB.end} 時間重疊`; else if(n>=cap) note=`此時段已達上限 ${cap} 人`; }
+      if(!already){ if(isStudent&&!stuIds.has(me)) note='此帳號沒有對應到學員名單，無法預約，請洽管理員'; else if(mySusp) note=`無故缺席已達 ${limit} 次，預約權限暫停至學期結束`; else if(ended(date,sl)) note='此時段已結束'; else if(!inSem(date)) note=`已超出本學期（至 ${String(cfg.semEnd||'').replace(/-/g,'/')}）`; else if(clashB) note=`與你已預約的 ${clashB.name||''} ${clashB.start}–${clashB.end} 時間重疊`; else if(n>=cap) note=`此時段已達上限 ${cap} 人`; }
       slotVals={slotOpen:true,slotTitle:`週${DOW[dow(date)]} ${sl.name||''} ${sl.start}–${sl.end}`,slotTitleSub:date.replace(/-/g,'.'),slotCount:String(n),slotRows:rows,slotEmpty:!rows.length,slotNote:note,
         slotCanBook:!already&&!note,slotCanCancel:!!mineB,
         // guard here too, not only in the template, so a stale handler cannot bypass the rules
@@ -1104,6 +1107,8 @@ class Component extends DCLogic {
       enableDesktop:()=>{ try{ window.Notification.requestPermission().then(()=>this.setState({tick:Date.now()})); }catch(e){} },
       openNotices:()=>this.setState(st=>({noticeOpen:true,noticeSeen:st.unread||0,unread:0})),closeNotices:()=>this.setState({noticeOpen:false,noticeSeen:0}),
       clearNotices:()=>this.setState({notices:[],unread:0,noticeSeen:0}),
+      // 學員帳號的學員代號對不上名單時常駐提醒（否則預約會被伺服器拒絕，看起來像沒有同步）
+      accountWarn:session&&isStudent&&!stuIds.has(me)?`此帳號的學員代號「${me||'（空白）'}」不在學員名單中，無法預約或請假。請管理員到 Google Sheet「帳號管理」把學員代號改成名單上的代號（例如 A1、B8）。`:'',
       recordHint:canRec?'可點「編輯」手動調整缺席、停權或加備註。':'',
       ...(()=>{ const r=s.recEdit; if(!r||!canRec) return {recOpen:false};
         const raw=nsRaw(r.sid), adj=parseInt(r.nsAdj,10)||0, eff=Math.max(0,raw+adj), rc=recOf(r.sid);
