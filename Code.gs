@@ -13,24 +13,67 @@ const SHEET_ID = '';   // '' = 與此腳本綁定的試算表（擴充功能 →
 const TZ = 'Asia/Taipei';
 const DEMO_TODAY = '2026-09-30';   // 寫入 Config.today；清空該格即改用伺服器真實日期
 
+// cols：左邊是程式內部名稱（固定），右邊是 Sheet 標題列文字（可改）；欄位順序即 setup() 建表時的排列
+// 標「顯示用」的欄位只在寫入時填入方便人閱讀，程式不讀它（例如學員改名後，舊紀錄保留當時的姓名）
 const SHEETS = {
-  bookings:   { name: 'Bookings',   cols: { id:'id', sid:'sid', date:'date',
-                                            slot:'slot', status:'status',
-                                            updatedAt:'updatedAt' } },
-  leaves:     { name: 'Leaves',     cols: { id:'id', sid:'sid', date:'date',
-                                            reason:'reason', status:'status',
-                                            updatedAt:'updatedAt' } },
-  faults:     { name: 'Faults',     cols: { id:'id', eq:'eq', desc:'desc', by:'by',
-                                            time:'time', status:'status',
-                                            updatedAt:'updatedAt' } },
-  useLog:     { name: 'UseLog',     cols: { who:'who', item:'item',
-                                            qty:'qty', time:'time' } },
-  attendance: { name: 'Attendance', cols: { date:'date', sid:'sid',
-                                            present:'present',
-                                            updatedAt:'updatedAt' } },
-  config:     { name: 'Config',     cols: { key:'key', value:'value' } }
+  bookings:   { name: '預約紀錄', tab: '#B5654A',
+                cols: { id:'編號', date:'日期', slotName:'時段', sname:'學員', status:'狀態',
+                        sid:'學員代號', slot:'時段代號', updatedAt:'最後更新' } },
+  leaves:     { name: '請假申請', tab: '#8A6A3A',
+                cols: { id:'編號', date:'培訓日', sname:'學員', reason:'請假原因', status:'狀態',
+                        sid:'學員代號', updatedAt:'最後更新' } },
+  attendance: { name: '培訓點名', tab: '#6B7A5A',
+                cols: { date:'培訓日', sname:'學員', present:'出席',
+                        sid:'學員代號', updatedAt:'最後更新' } },
+  faults:     { name: '故障回報', tab: '#9A4A3A',
+                cols: { id:'編號', time:'回報時間', eqName:'設備', desc:'故障描述', by:'回報人', status:'狀態',
+                        eq:'設備代號', updatedAt:'最後更新' } },
+  useLog:     { name: '耗材取用', tab: '#4A5A6E',
+                cols: { time:'時間', who:'取用人', itemName:'耗材', qty:'數量', item:'耗材代號' } },
+  config:     { name: '系統設定', tab: '#3B3530',
+                cols: { label:'說明', key:'設定項', value:'內容（JSON）' } }
 };
 /** ───── 以下不需修改 ───── */
+
+// 狀態欄在 Sheet 顯示中文，程式內部仍用英文代碼；讀取時中文、英文都接受
+// 顏色與前端狀態標籤一致：[文字, 底色, 字色]
+const ENUMS = {
+  bookings:   { status:  { pending:['待確認','#F3E6CF','#8A6A3A'], confirmed:['已確認','#E2E6EA','#4A5A6E'],
+                           checkedin:['在場中','#E3E8D8','#4F6140'], done:['已簽退','#ECE6DA','#6B7A5A'],
+                           noshow:['無故未到','#F1DDD5','#9A4A3A'] } },
+  leaves:     { status:  { pending:['待審核','#F3E6CF','#8A6A3A'], approved:['已核准','#E3E8D8','#4F6140'],
+                           rejected:['已退回','#ECE6DA','#6B7A5A'] } },
+  faults:     { status:  { open:['待處理','#F1DDD5','#9A4A3A'], fixed:['已修復','#E3E8D8','#4F6140'] } },
+  attendance: { present: { TRUE:['出席','#E3E8D8','#4F6140'], FALSE:['未出席','#ECE6DA','#857A6C'] } }
+};
+
+// 排版：欄寬（px）、淡色欄（代號類）、置中欄、自動換行欄
+const LAYOUT = {
+  bookings:   { widths:{ id:60, date:110, slotName:170, sname:100, status:96, sid:80, slot:80, updatedAt:150 },
+                muted:['sid','slot','updatedAt'], center:['id','date','status','sid','slot','updatedAt'] },
+  leaves:     { widths:{ id:60, date:110, sname:100, reason:260, status:96, sid:80, updatedAt:150 },
+                muted:['sid','updatedAt'], center:['id','date','status','sid','updatedAt'], wrap:['reason'] },
+  attendance: { widths:{ date:110, sname:100, present:90, sid:80, updatedAt:150 },
+                muted:['sid','updatedAt'], center:['date','present','sid','updatedAt'] },
+  faults:     { widths:{ id:60, time:110, eqName:150, desc:280, by:110, status:96, eq:80, updatedAt:150 },
+                muted:['eq','updatedAt'], center:['id','time','status','eq','updatedAt'], wrap:['desc'] },
+  useLog:     { widths:{ time:110, who:110, itemName:140, qty:70, item:90 },
+                muted:['item'], center:['time','qty','item'] },
+  config:     { widths:{ label:170, key:130, value:620 }, muted:['key'], center:[] }
+};
+
+// 系統設定分頁的「說明」欄
+const CFG_LABELS = {
+  labBadge:'左上角標誌字', labName:'系統名稱', labSub:'副標', rulesTitle:'管理辦法標題',
+  semStart:'學期開始', semEnd:'學期結束', trainDay:'固定培訓日（0=日…6=六）', capacity:'每時段人數上限',
+  noShowLimit:'無故缺席停權次數', roles:'人員編制與職責', classes:'固定培訓班別', slots:'自由編排時段',
+  students:'學員名單', equipment:'設備清單', consumables:'耗材項目與庫存', rules:'管理辦法條文',
+  checkoutItems:'簽退檢查項目', closingItems:'最後離開者檢查項目', closing:'最後離開者勾選狀態',
+  slotsV2:'時段結構版本（請勿改動）', today:'示範日期（清空 = 使用真實日期）'
+};
+
+// 舊版英文分頁名稱：setup() 遇到時會自動改名並換成中文標題
+const LEGACY_NAMES = { bookings:'Bookings', leaves:'Leaves', attendance:'Attendance', faults:'Faults', useLog:'UseLog', config:'Config' };
 
 const LIVE = ['pending', 'confirmed', 'checkedin', 'done'];
 const BOOKING_STATUS = ['confirmed', 'checkedin', 'done', 'noshow'];
@@ -121,7 +164,7 @@ const ACTIONS = {
       throw new ApiError('FULL', `此時段已達上限 ${cap} 人`);
 
     const id = nextId_(t);
-    append_(t, { id, sid, date, slot, status: 'pending', updatedAt: iso_() });
+    append_(t, decorate_('bookings', { id, sid, date, slot, status: 'pending', updatedAt: ts_() }, cfg));
     return { id };
   },
 
@@ -133,7 +176,7 @@ const ACTIONS = {
   setBookingStatus(p) {
     const status = reqEnum_(p.status, BOOKING_STATUS);
     const t = readTable_('bookings');
-    update_(t, findById_(t, p.id), { status, updatedAt: iso_() });
+    update_(t, findById_(t, p.id), { status, updatedAt: ts_() });
   },
 
   submitLeave(p) {
@@ -150,14 +193,14 @@ const ACTIONS = {
     if (t.rows.some(r => r.sid === sid && normDate_(r.date) === date && r.status !== 'rejected'))
       throw new ApiError('DUPLICATE_LEAVE', '該日已有請假申請');
     const id = nextId_(t);
-    append_(t, { id, sid, date, reason, status: 'pending', updatedAt: iso_() });
+    append_(t, decorate_('leaves', { id, sid, date, reason, status: 'pending', updatedAt: ts_() }, cfg));
     return { id };
   },
 
   setLeaveStatus(p) {
     const status = reqEnum_(p.status, LEAVE_STATUS);
     const t = readTable_('leaves');
-    update_(t, findById_(t, p.id), { status, updatedAt: iso_() });
+    update_(t, findById_(t, p.id), { status, updatedAt: ts_() });
   },
 
   submitFault(p) {
@@ -168,14 +211,14 @@ const ACTIONS = {
     if (!cfg.equipment.some(e => e.key === eq)) throw new ApiError('BAD_PAYLOAD', '設備不存在');
     const t = readTable_('faults');
     const id = nextId_(t);
-    append_(t, { id, eq, desc, by: String(p.by || ''), time: stamp_(cfg), status: 'open', updatedAt: iso_() });
+    append_(t, decorate_('faults', { id, eq, desc, by: String(p.by || ''), time: stamp_(cfg), status: 'open', updatedAt: ts_() }, cfg));
     return { id };
   },
 
   setFaultStatus(p) {
     const status = reqEnum_(p.status, FAULT_STATUS);
     const t = readTable_('faults');
-    update_(t, findById_(t, p.id), { status, updatedAt: iso_() });
+    update_(t, findById_(t, p.id), { status, updatedAt: ts_() });
   },
 
   logUse(p) {
@@ -189,7 +232,7 @@ const ACTIONS = {
 
     // 扣庫存與寫 UseLog 在同一個鎖內
     writeCfg_(t, { consumables: cfg.consumables.map(c => c.id === item.id ? Object.assign({}, c, { stock: stock - qty }) : c) });
-    append_(readTable_('useLog'), { who: String(p.who || ''), item: item.id, qty, time: stamp_(cfg) });
+    append_(readTable_('useLog'), decorate_('useLog', { who: String(p.who || ''), item: item.id, qty, time: stamp_(cfg) }, cfg));
   },
 
   restock(p) {
@@ -205,7 +248,7 @@ const ACTIONS = {
     if (typeof p.present !== 'boolean') throw new ApiError('BAD_PAYLOAD', '參數不完整');
     const t = readTable_('attendance');
     const row = t.rows.find(r => normDate_(r.date) === date && r.sid === sid);
-    const rec = { date, sid, present: p.present, updatedAt: iso_() };
+    const rec = decorate_('attendance', { date, sid, present: p.present, updatedAt: ts_() }, readCfg_().cfg);
     if (row) update_(t, row, rec); else append_(t, rec);
   },
 
@@ -314,7 +357,7 @@ function readTable_(k) {
   const idx = {};
   Object.keys(def.cols).forEach(f => {
     const i = head.indexOf(def.cols[f]);
-    if (i < 0) throw new ApiError('SETUP', `分頁「${def.name}」缺少欄位「${def.cols[f]}」`);
+    if (i < 0) throw new ApiError('SETUP', `分頁「${def.name}」缺少欄位「${def.cols[f]}」，請重新執行 setup()`);
     idx[f] = i;
   });
   const rows = [];
@@ -322,17 +365,26 @@ function readTable_(k) {
     const v = vals[r];
     if (v.every(x => x === '')) continue;
     const o = { _row: r + 1 };
-    Object.keys(idx).forEach(f => { o[f] = String(v[idx[f]]).trim(); });
+    Object.keys(idx).forEach(f => { o[f] = fromSheet_(k, f, String(v[idx[f]]).trim()); });
     rows.push(o);
   }
-  return { sh, idx, width: head.length, rows };
+  return { k, sh, idx, width: head.length, rows };
+}
+
+// 物件 → 整列陣列（未對應的欄位留空）
+function rowOf_(t, obj) {
+  const row = new Array(t.width).fill('');
+  Object.keys(t.idx).forEach(f => { if (f in obj) row[t.idx[f]] = toSheet_(t.k, f, obj[f]); });
+  return row;
 }
 
 function append_(t, obj) {
-  const row = new Array(t.width).fill('');
-  Object.keys(t.idx).forEach(f => { if (f in obj) row[t.idx[f]] = cell_(obj[f]); });
   const r = t.sh.getLastRow() + 1;
-  t.sh.getRange(r, 1, 1, t.width).setNumberFormat('@').setValues([row]);
+  if (r > t.sh.getMaxRows()) {   // 列數用完時一次加 500 列，並把排版延伸過去
+    t.sh.insertRowsAfter(t.sh.getMaxRows(), 500);
+    format_(t.k, t.sh);
+  }
+  t.sh.getRange(r, 1, 1, t.width).setNumberFormat('@').setValues([rowOf_(t, obj)]);
   return r;
 }
 
@@ -340,9 +392,39 @@ function append_(t, obj) {
 function update_(t, row, obj) {
   Object.keys(obj).forEach(f => {
     if (!(f in t.idx)) return;
-    t.sh.getRange(row._row, t.idx[f] + 1).setNumberFormat('@').setValue(cell_(obj[f]));
+    t.sh.getRange(row._row, t.idx[f] + 1).setNumberFormat('@').setValue(toSheet_(t.k, f, obj[f]));
     row[f] = cell_(obj[f]);
   });
+}
+
+// 內部代碼 ⇄ Sheet 顯示文字（只有 ENUMS 列出的欄位會轉換）
+function toSheet_(k, f, v) {
+  const c = cell_(v), e = ENUMS[k] && ENUMS[k][f];
+  return e && e[c] ? e[c][0] : c;
+}
+function fromSheet_(k, f, s) {
+  const e = ENUMS[k] && ENUMS[k][f];
+  if (!e) return s;
+  const hit = Object.keys(e).find(code => e[code][0] === s);
+  return hit || s;
+}
+
+// 補上顯示用欄位
+function decorate_(k, o, cfg) {
+  const stu = id => (cfg.students.find(s => s.id === id) || {}).name || id;
+  const x = Object.assign({}, o);
+  if ('sid' in o) x.sname = stu(o.sid);
+  if (k === 'bookings') {
+    const sl = cfg.slots.find(s => s.id === o.slot);
+    x.slotName = sl ? `${sl.name || ''} ${sl.start}–${sl.end}`.trim() : o.slot;
+  }
+  if (k === 'faults') {
+    const e = cfg.equipment.find(q => q.key === o.eq);
+    x.eqName = e ? `${e.code}・${e.type}` : o.eq;
+  }
+  if (k === 'useLog') x.itemName = (cfg.consumables.find(c => c.id === o.item) || {}).name || o.item;
+  if (k === 'config') x.label = CFG_LABELS[o.key] || '';
+  return x;
 }
 
 function findById_(t, id) {
@@ -383,7 +465,7 @@ function writeCfg_(t, entries) {
     const value = JSON.stringify(entries[key]);
     const row = t.rows.find(r => r.key === key);
     if (row) update_(t, row, { value });
-    else { const r = append_(t, { key, value }); t.rows.push({ _row: r, key, value }); }
+    else { const r = append_(t, decorate_('config', { key, value })); t.rows.push({ _row: r, key, value }); }
   });
 }
 
@@ -395,7 +477,7 @@ const overlap_ = (a, b) => valid_(a) && valid_(b) && a.start < b.end && b.start 
 const isOpen_ = sl => sl.open !== 'no' && valid_(sl);
 const isTrue_ = v => String(v).toUpperCase() === 'TRUE';
 const slash_ = s => String(s || '').replace(/-/g, '/');
-const iso_ = () => new Date().toISOString();
+const ts_ = () => Utilities.formatDate(new Date(), TZ, 'yyyy/MM/dd HH:mm:ss');
 
 function isDate_(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
@@ -468,8 +550,8 @@ function json_(o) {
 /* ════════════════════════ 建表與示範資料 ════════════════════════ */
 
 /**
- * 在 GAS 編輯器手動執行一次。
- * 建立缺少的分頁與標題列；若 6 張分頁都沒有資料列，就寫入示範資料。
+ * 在 GAS 編輯器手動執行一次（之後想重新套用排版也可以再執行，不會動到資料）。
+ * 建立缺少的分頁與標題列、套用排版；若 6 張分頁都沒有資料列，就寫入示範資料。
  * 已有資料時不會覆寫——要重建請在前端按「重設全部示範資料」或執行 resetDemoFromEditor()。
  */
 function setup() {
@@ -477,20 +559,72 @@ function setup() {
   Object.keys(SHEETS).forEach(k => {
     const def = SHEETS[k], heads = Object.values(def.cols);
     let sh = book.getSheetByName(def.name);
+    const legacy = book.getSheetByName(LEGACY_NAMES[k]);
+    if (!sh && legacy) { legacy.setName(def.name); sh = legacy; relabel_(k, sh); }
     if (!sh) sh = book.insertSheet(def.name, book.getNumSheets());
     const cur = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getDisplayValues()[0].map(String);
     const missing = heads.filter(h => !cur.includes(h));
     if (sh.getLastColumn() === 0 || cur.every(h => h === '')) {
-      sh.getRange(1, 1, 1, heads.length).setValues([heads]).setFontWeight('bold');
+      sh.getRange(1, 1, 1, heads.length).setValues([heads]);
     } else if (missing.length) {
-      sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+      sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]);
     }
-    sh.setFrozenRows(1);
-    sh.getRange(1, 1, sh.getMaxRows(), sh.getLastColumn()).setNumberFormat('@');
+    format_(k, sh);
   });
   const empty = Object.keys(SHEETS).every(k => readTable_(k).rows.length === 0);
   if (empty) { seedAll_(); Logger.log('已建立 6 張分頁並寫入示範資料'); }
-  else Logger.log('分頁已存在且有資料，未覆寫');
+  else Logger.log('分頁已存在且有資料，未覆寫；已重新套用排版');
+}
+
+// 舊版英文標題（與程式內部名稱相同）換成中文；資料裡的英文狀態仍可讀取，重設示範資料後全面換成中文
+function relabel_(k, sh) {
+  const n = sh.getLastColumn();
+  if (!n) return;
+  const r = sh.getRange(1, 1, 1, n);
+  r.setValues([r.getDisplayValues()[0].map(h => SHEETS[k].cols[String(h).trim()] || h)]);
+}
+
+// 排版：深色標題列、交錯底色、欄寬、狀態下拉選單與顏色。可重複執行
+function format_(k, sh) {
+  const def = SHEETS[k], lay = LAYOUT[k] || {};
+  const nCols = Math.max(sh.getLastColumn(), 1), nRows = sh.getMaxRows();
+  const head = sh.getRange(1, 1, 1, nCols).getDisplayValues()[0].map(h => String(h).trim());
+  const col = f => head.indexOf(def.cols[f]) + 1;   // 0 = 此欄不存在
+  const body = c => sh.getRange(2, c, nRows - 1, 1);
+
+  sh.setTabColor(def.tab);
+  sh.setHiddenGridlines(true);
+  sh.setFrozenRows(1);
+  const all = sh.getRange(1, 1, nRows, nCols);
+  all.setNumberFormat('@').setFontSize(10).setVerticalAlignment('middle')
+     .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP).setFontColor('#3B3530');
+  sh.getBandings().forEach(b => b.remove());
+  all.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false)
+     .setHeaderRowColor('#3B3530').setFirstRowColor('#FFFFFF').setSecondRowColor('#F6F2EA');
+  sh.getRange(1, 1, 1, nCols).setFontColor('#FBF8F2').setFontWeight('bold').setFontSize(11)
+    .setHorizontalAlignment('center');
+  sh.setRowHeight(1, 34);
+  sh.setRowHeights(2, nRows - 1, 26);
+
+  Object.keys(lay.widths || {}).forEach(f => { const c = col(f); if (c) sh.setColumnWidth(c, lay.widths[f]); });
+  (lay.center || []).forEach(f => { const c = col(f); if (c) body(c).setHorizontalAlignment('center'); });
+  (lay.wrap || []).forEach(f => { const c = col(f); if (c) body(c).setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP); });
+  (lay.muted || []).forEach(f => { const c = col(f); if (c) body(c).setFontColor('#A89C8A'); });
+
+  const rules = [];
+  Object.keys(ENUMS[k] || {}).forEach(f => {
+    const c = col(f);
+    if (!c) return;
+    const e = ENUMS[k][f], rng = body(c);
+    rng.setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(Object.keys(e).map(code => e[code][0]), true).setAllowInvalid(false).build());
+    Object.keys(e).forEach(code => {
+      const [label, bg, fg] = e[code];
+      rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(label)
+        .setBackground(bg).setFontColor(fg).setBold(true).setRanges([rng]).build());
+    });
+  });
+  sh.setConditionalFormatRules(rules);
 }
 
 function resetDemoFromEditor() {
@@ -500,7 +634,7 @@ function resetDemoFromEditor() {
 }
 
 function seedAll_() {
-  const now = iso_(), T = DEMO_TODAY;
+  const now = ts_(), T = DEMO_TODAY;
   let id = 1;
   const b = (sid, date, slot, status) => ({ id: id++, sid, date, slot, status, updatedAt: now });
   const cfg = seedCfg_();
@@ -542,11 +676,7 @@ function seedAll_() {
     const t = readTable_(k);
     const last = t.sh.getLastRow();
     if (last > 1) t.sh.getRange(2, 1, last - 1, Math.max(t.width, 1)).clearContent();
-    const rows = data[k].map(o => {
-      const a = new Array(t.width).fill('');
-      Object.keys(t.idx).forEach(f => { if (f in o) a[t.idx[f]] = cell_(o[f]); });
-      return a;
-    });
+    const rows = data[k].map(o => rowOf_(t, decorate_(k, o, cfg)));
     if (rows.length) t.sh.getRange(2, 1, rows.length, t.width).setNumberFormat('@').setValues(rows);
   });
 }
