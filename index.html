@@ -533,7 +533,7 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
 <script type="text/x-dc" data-dc-script>
 // ── Google Sheet 同步（後端為 Code.gs，規格見 GAS-串接規格.md）
 // 填入 GAS 部署後的 /exec 網址即啟用；留空 = 離線示範模式，資料只存在本機瀏覽器
-const API_URL = '';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwqXqZBawwIAOJD4Vysx4giPZ-CXni8-QroIl7QekhQKylLbBCgamwRYtcZzw2ullan/exec';
 const POLL_MS = 30000;   // 每 30 秒向 Sheet 拉一次最新資料（分頁在背景時暫停）
 const PUSH_MS = 800;     // 後台設定停止輸入 800ms 後才推送
 // 後台可推送的設定鍵，需與 Code.gs 的 CFG_TYPES 一致
