@@ -21,9 +21,10 @@ const DEMO_TODAY = '2026-09-30';   // 寫入 Config.today；清空該格即改�
 //   attendance 點名任何班別（其他角色只能點自己負責的班別，依「培訓班別」的負責職務）
 //   faultFix   標記故障已修復      restock  耗材補貨
 //   config     編輯全部後台設定    slots    只編輯「自由編排時段」      reset  重設全部資料
+//   records    調整學員缺席次數、停權與考核備註（學員看不到考核紀錄）
 const ROLES = {
-  admin:   { label:'系統管理員', perms:['bookings','leaves','attendance','faultFix','restock','config','slots','reset'] },
-  trainer: { label:'培訓專員',   perms:['leaves'] },
+  admin:   { label:'系統管理員', perms:['bookings','leaves','attendance','faultFix','restock','config','slots','reset','records'] },
+  trainer: { label:'培訓專員',   perms:['leaves','records'] },
   tutor:   { label:'培訓輔導員', perms:['faultFix'] },
   editor:  { label:'編輯人員',   perms:['config','slots'] },
   student: { label:'學員',       perms:['slots'] }
@@ -52,6 +53,10 @@ const SHEETS = {
                 cols: { time:'時間', who:'取用人', itemName:'耗材', qty:'數量', item:'耗材代號' } },
   config:     { name: '系統設定', tab: '#3B3530',
                 cols: { label:'說明', key:'設定項', value:'內容（JSON）' } },
+  // 每位學員一列；缺席調整可為負數，停權設定可覆蓋自動規則
+  records:    { name: '考核調整', tab: '#7A5C8A',
+                cols: { sname:'學員', nsAdj:'缺席調整', suspend:'停權設定', reason:'調整原因', note:'備註',
+                        by:'修改人', updatedAt:'最後更新', sid:'學員代號' } },
   // 新增帳號：填帳號、姓名、角色（學員另填學員代號），在「設定新密碼」輸入密碼，系統會立即加密並清空該格
   accounts:   { name: '帳號管理', tab: '#5A5048',
                 cols: { user:'帳號', name:'姓名', role:'角色', sid:'學員代號', active:'狀態',
@@ -69,13 +74,17 @@ const ENUMS = {
                            rejected:['已退回','#ECE6DA','#6B7A5A'] } },
   faults:     { status:  { open:['待處理','#F1DDD5','#9A4A3A'], fixed:['已修復','#E3E8D8','#4F6140'] } },
   attendance: { present: { TRUE:['出席','#E3E8D8','#4F6140'], FALSE:['未出席','#ECE6DA','#857A6C'] } },
+  records:    { suspend: { auto:['依規則','#FFFFFF','#857A6C'], on:['強制停權','#F1DDD5','#9A4A3A'],
+                           off:['解除停權','#E3E8D8','#4F6140'] } },
   accounts:   { role:    { admin:['系統管理員','#3B3530','#FBF8F2'],
                            trainer:['培訓專員','#F3E6CF','#8A6A3A'], tutor:['培訓輔導員','#E3E8D8','#4F6140'],
                            editor:['編輯人員','#ECE6DA','#6B7A5A'], student:['學員','#FFFFFF','#3B3530'] },
                 active:  { TRUE:['啟用','#E3E8D8','#4F6140'], FALSE:['停用','#F1DDD5','#9A4A3A'] } }
 };
 // 資料分頁（重設示範資料只動這些；帳號管理永遠不會被清除）
-const DATA_TABLES = ['bookings', 'leaves', 'attendance', 'faults', 'useLog', 'config'];
+const DATA_TABLES = ['bookings', 'leaves', 'attendance', 'faults', 'useLog', 'config', 'records'];
+// 後來才新增的分頁：缺少時自動建立，已部署的系統不必重跑 setup()
+const AUTO_TABLES = ['records'];
 
 // 排版：欄寬（px）、淡色欄（代號類）、置中欄、自動換行欄
 const LAYOUT = {
@@ -90,6 +99,8 @@ const LAYOUT = {
   useLog:     { widths:{ time:110, who:110, itemName:140, qty:70, item:90 },
                 muted:['item'], center:['time','qty','item'] },
   config:     { widths:{ label:170, key:130, value:620 }, muted:['key'], center:[] },
+  records:    { widths:{ sname:100, nsAdj:80, suspend:96, reason:220, note:300, by:100, updatedAt:150, sid:80 },
+                muted:['by','updatedAt','sid'], center:['nsAdj','suspend','updatedAt','sid'], wrap:['reason','note'] },
   accounts:   { widths:{ user:110, name:110, role:110, sid:80, active:70, newpw:130, pw:220, lastLogin:150 },
                 muted:['pw','lastLogin'], center:['role','sid','active','lastLogin'] }
 };
@@ -137,9 +148,9 @@ function doGet(e) {
     if (action !== 'load') throw new ApiError('BAD_ACTION', '未知的操作');
     const me = auth_(q.token);
     const v = ver_();
-    return json_({ ok: true, v, user: userOf_(me), data: state_() });
+    return json_({ ok: true, v, user: userOf_(me), data: state_(me) });
   } catch (x) {
-    return json_(failure_(x, false));
+    return json_(failure_(x, null));
   }
 }
 
@@ -149,26 +160,26 @@ function doPost(e) {
     p = JSON.parse(e.postData.contents);
     if (!p || typeof p !== 'object') throw 0;
   } catch (x) {
-    return json_(failure_(new ApiError('BAD_PAYLOAD', '參數不完整'), true));
+    return json_(failure_(new ApiError('BAD_PAYLOAD', '參數不完整'), null));
   }
   const fn = Object.prototype.hasOwnProperty.call(ACTIONS, p.action) ? ACTIONS[p.action] : null;
-  if (!fn) return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), false));
+  if (!fn) return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), null));
 
   // 除了 login，每個操作都要帶有效的 token；未登入時失敗回應也不附資料
   let me = null;
   if (p.action !== 'login') {
-    try { me = auth_(p.token); } catch (x) { return json_(failure_(x, false)); }
+    try { me = auth_(p.token); } catch (x) { return json_(failure_(x, null)); }
   }
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) return json_(failure_(new ApiError('LOCK_TIMEOUT', '伺服器忙碌，請重試'), !!me));
+  if (!lock.tryLock(10000)) return json_(failure_(new ApiError('LOCK_TIMEOUT', '伺服器忙碌，請重試'), me));
   try {
     const extra = fn(p, me) || {};
     SpreadsheetApp.flush();
     if (p.action === 'logout') return json_({ ok: true });
     const v = NO_BUMP.includes(p.action) ? ver_() : bump_();
-    return json_(Object.assign({ ok: true }, extra, { v, data: state_() }));
+    return json_(Object.assign({ ok: true }, extra, { v, data: state_(me || userOf_(extra.user || {})) }));
   } catch (x) {
-    return json_(failure_(x, !!me));
+    return json_(failure_(x, me));
   } finally {
     lock.releaseLock();
   }
@@ -230,8 +241,11 @@ const ACTIONS = {
     const slotIds = new Set(cfg.slots.map(s => s.id));
     const all = t.rows.map(bookingOf_).filter(b => slotIds.has(b.slot));
     const limit = Math.max(1, Number(cfg.noShowLimit) || 1);
-    if (all.filter(b => b.sid === sid && b.status === 'noshow').length >= limit)
-      throw new ApiError('SUSPENDED', `無故缺席已達 ${limit} 次，預約權限暫停至學期結束`);
+    const rec = readTable_('records').rows.find(r => r.sid === sid) || {};
+    const ns = Math.max(0, all.filter(b => b.sid === sid && b.status === 'noshow').length + (parseInt(rec.nsAdj, 10) || 0));
+    if (rec.suspend === 'on' || (rec.suspend !== 'off' && ns >= limit))
+      throw new ApiError('SUSPENDED', rec.suspend === 'on' ? '預約權限已由管理員暫停，請洽培訓專員'
+        : `無故缺席已達 ${limit} 次，預約權限暫停至學期結束`);
 
     const mine = all.filter(b => b.sid === sid && b.date === date && LIVE.includes(b.status));
     if (mine.some(b => b.slot === slot)) throw new ApiError('DUPLICATE', '你已預約此時段');
@@ -375,6 +389,23 @@ const ACTIONS = {
     if (!sl) throw new ApiError('SLOT_NOT_FOUND', '時段不存在');
     assertSlotUnused_(sl);
     writeCfg_(t, { slots: cfg.slots.filter(s => s.id !== id) });
+  },
+
+  setRecord(p, me) {
+    need_(me, 'records');
+    const sid = reqStr_(p.sid);
+    const cfg = readCfg_().cfg;
+    if (!cfg.students.some(s => s.id === sid)) throw new ApiError('BAD_PAYLOAD', '學員不存在');
+    const nsAdj = Number(p.nsAdj || 0);
+    if (!Number.isInteger(nsAdj) || Math.abs(nsAdj) > 99) throw new ApiError('BAD_PAYLOAD', '缺席調整須為 -99 到 99 的整數');
+    const suspend = reqEnum_(p.suspend || 'auto', ['auto', 'on', 'off']);
+    const txt = v => String(v == null ? '' : v).trim().slice(0, 2000);
+    const reason = txt(p.reason), note = txt(p.note);
+    if ((nsAdj || suspend !== 'auto') && !reason) throw new ApiError('BAD_PAYLOAD', '調整缺席或停權時請填寫調整原因');
+    const t = readTable_('records');
+    const row = t.rows.find(r => r.sid === sid);
+    const rec = decorate_('records', { sid, nsAdj, suspend, reason, note, by: me.name, updatedAt: ts_() }, cfg);
+    if (row) update_(t, row, rec); else append_(t, rec);
   },
 
   resetDemo(p, me) {
@@ -535,8 +566,13 @@ function assertSlotUnused_(sl) {
 
 /* ════════════════════════ 狀態組裝 ════════════════════════ */
 
-function state_() {
+function state_(me) {
   const cfg = readCfg_().cfg;
+  const recs = readTable_('records').rows.map(r => ({ sid: r.sid, nsAdj: parseInt(r.nsAdj, 10) || 0, suspend: r.suspend || 'auto',
+    reason: r.reason, note: r.note, by: r.by, updatedAt: r.updatedAt }));
+  const records = me && me.role === 'student'
+    ? recs.filter(r => r.sid === me.sid).map(r => ({ sid: r.sid, nsAdj: r.nsAdj, suspend: r.suspend }))
+    : recs;
   const attendance = {};
   readTable_('attendance').rows.forEach(r => { if (isTrue_(r.present)) attendance[normDate_(r.date) + '|' + r.sid] = true; });
   const pub = Object.assign({}, cfg);
@@ -550,6 +586,7 @@ function state_() {
     // Sheet 由舊到新附加；前端要新的在前
     useLog: readTable_('useLog').rows.slice(-USELOG_RETURN).reverse().map(r => ({ who: r.who, item: r.item, qty: Number(r.qty) || 0, time: r.time })),
     closing: cfg.closing && typeof cfg.closing === 'object' ? cfg.closing : {},
+    records,
     cfg: pub
   };
 }
@@ -567,7 +604,7 @@ function ss_() {
 
 function readTable_(k) {
   const def = SHEETS[k];
-  const sh = ss_().getSheetByName(def.name);
+  const sh = ss_().getSheetByName(def.name) || (AUTO_TABLES.includes(k) ? ensureSheet_(k) : null);
   if (!sh) throw new ApiError('SETUP', `找不到分頁「${def.name}」，請先在 GAS 編輯器執行 setup()`);
   // 一律讀顯示文字，避免日期被 Sheets 轉成 Date 物件
   const vals = sh.getDataRange().getDisplayValues();
@@ -756,11 +793,11 @@ function ApiError(code, message) {
   this.message = message;
 }
 
-function failure_(x, withData) {
+function failure_(x, me) {
   const known = x instanceof ApiError;
   const res = { ok: false, error: known ? x.code : 'SERVER', message: known ? x.message : '伺服器錯誤：' + (x && x.message || x) };
-  if (withData) {
-    try { res.v = ver_(); res.data = state_(); } catch (e) { res.data = null; }   // 分頁缺失時無法附帶狀態
+  if (me) {
+    try { res.v = ver_(); res.data = state_(me); } catch (e) { res.data = null; }   // 分頁缺失時無法附帶狀態
   }
   return res;
 }
@@ -777,22 +814,7 @@ function json_(o) {
  * 已有資料時不會覆寫——要重建請在前端按「重設全部示範資料」或執行 resetDemoFromEditor()。
  */
 function setup() {
-  const book = ss_();
-  Object.keys(SHEETS).forEach(k => {
-    const def = SHEETS[k], heads = Object.values(def.cols);
-    let sh = book.getSheetByName(def.name);
-    const legacy = book.getSheetByName(LEGACY_NAMES[k]);
-    if (!sh && legacy) { legacy.setName(def.name); sh = legacy; relabel_(k, sh); }
-    if (!sh) sh = book.insertSheet(def.name, book.getNumSheets());
-    const cur = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getDisplayValues()[0].map(String);
-    const missing = heads.filter(h => !cur.includes(h));
-    if (sh.getLastColumn() === 0 || cur.every(h => h === '')) {
-      sh.getRange(1, 1, 1, heads.length).setValues([heads]);
-    } else if (missing.length) {
-      sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]);
-    }
-    format_(k, sh);
-  });
+  Object.keys(SHEETS).forEach(ensureSheet_);
   const empty = DATA_TABLES.every(k => readTable_(k).rows.length === 0);
   if (empty) { seedAll_(); Logger.log('已建立資料分頁並寫入示範資料'); }
   else Logger.log('分頁已存在且有資料，未覆寫；已重新套用排版');
@@ -803,6 +825,28 @@ function setup() {
     append_(acc, { user: 'admin', name: '系統管理員', role: 'admin', active: true, pw: hashPw_(pw) });
     showOnce_('已建立系統管理員帳號（密碼只顯示這一次，登入後請立即修改）', `帳號：admin\n密碼：${pw}`);
   }
+}
+
+// 建立（或補齊）一張系統分頁的標題列並套用排版；可重複執行
+function ensureSheet_(k) {
+  const book = ss_(), def = SHEETS[k], heads = Object.values(def.cols);
+  let sh = book.getSheetByName(def.name);
+  const legacy = LEGACY_NAMES[k] && book.getSheetByName(LEGACY_NAMES[k]);
+  if (!sh && legacy) { legacy.setName(def.name); sh = legacy; relabel_(k, sh); }
+  if (!sh) {
+    try { sh = book.insertSheet(def.name, book.getNumSheets()); }
+    catch (x) { sh = book.getSheetByName(def.name); }   // 兩個請求同時建立時，後到的直接沿用
+    if (!sh) throw new ApiError('SETUP', `無法建立分頁「${def.name}」`);
+  }
+  const cur = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getDisplayValues()[0].map(String);
+  const missing = heads.filter(h => !cur.includes(h));
+  if (sh.getLastColumn() === 0 || cur.every(h => h === '')) {
+    sh.getRange(1, 1, 1, heads.length).setValues([heads]);
+  } else if (missing.length) {
+    sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]);
+  }
+  format_(k, sh);
+  return sh;
 }
 
 // 舊版英文標題（與程式內部名稱相同）換成中文；資料裡的英文狀態仍可讀取，重設示範資料後全面換成中文
@@ -898,6 +942,7 @@ function seedAll_() {
       { who:'林品妤', item:'pla', qty:1, time:'09/30 09:20' }
     ],
     attendance: [],
+    records: [],
     config: Object.keys(cfg).map(key => ({ key, value: JSON.stringify(cfg[key]) }))
   };
 
