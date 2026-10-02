@@ -15,7 +15,7 @@ const SHEET_ID = '';   // '' = 與此腳本綁定的試算表（擴充功能 →
 const TZ = 'Asia/Taipei';
 const DEMO_TODAY = '2026-09-30';   // 寫入 Config.today；清空該格即改用伺服器真實日期
 
-// 固定角色與權限。管理人員／培訓專員／培訓輔導員的顯示名稱以後台「人員編制」為準
+// 固定角色與權限（系統管理員已含原「管理人員」的工作）。培訓專員／培訓輔導員的顯示名稱以後台「人員編制」為準
 //   bookings   確認、婉拒、簽到、簽退、登記缺席、代學員預約或取消
 //   leaves     審核請假、代學員請假
 //   attendance 點名任何班別（其他角色只能點自己負責的班別，依「培訓班別」的負責職務）
@@ -23,13 +23,15 @@ const DEMO_TODAY = '2026-09-30';   // 寫入 Config.today；清空該格即改�
 //   config     編輯全部後台設定    slots    只編輯「自由編排時段」      reset  重設全部資料
 const ROLES = {
   admin:   { label:'系統管理員', perms:['bookings','leaves','attendance','faultFix','restock','config','slots','reset'] },
-  manager: { label:'管理人員',   perms:['bookings','faultFix','restock'] },
   trainer: { label:'培訓專員',   perms:['leaves'] },
   tutor:   { label:'培訓輔導員', perms:['faultFix'] },
   editor:  { label:'編輯人員',   perms:['config','slots'] },
   student: { label:'學員',       perms:['slots'] }
 };
+// 舊角色併入現有角色：帳號管理分頁裡填「管理人員」的帳號視為系統管理員
+const ROLE_ALIAS = { manager: 'admin' };
 const SESSION_HOURS = 6;   // 登入有效時間；有操作就自動延長
+const NO_BUMP = ['login', 'logout', 'changePassword'];   // 不改動共用資料的操作，不需通知其他人重新載入
 
 // cols：左邊是程式內部名稱（固定），右邊是 Sheet 標題列文字（可改）；欄位順序即 setup() 建表時的排列
 // 標「顯示用」的欄位只在寫入時填入方便人閱讀，程式不讀它（例如學員改名後，舊紀錄保留當時的姓名）
@@ -67,7 +69,7 @@ const ENUMS = {
                            rejected:['已退回','#ECE6DA','#6B7A5A'] } },
   faults:     { status:  { open:['待處理','#F1DDD5','#9A4A3A'], fixed:['已修復','#E3E8D8','#4F6140'] } },
   attendance: { present: { TRUE:['出席','#E3E8D8','#4F6140'], FALSE:['未出席','#ECE6DA','#857A6C'] } },
-  accounts:   { role:    { admin:['系統管理員','#3B3530','#FBF8F2'], manager:['管理人員','#E2E6EA','#4A5A6E'],
+  accounts:   { role:    { admin:['系統管理員','#3B3530','#FBF8F2'],
                            trainer:['培訓專員','#F3E6CF','#8A6A3A'], tutor:['培訓輔導員','#E3E8D8','#4F6140'],
                            editor:['編輯人員','#ECE6DA','#6B7A5A'], student:['學員','#FFFFFF','#3B3530'] },
                 active:  { TRUE:['啟用','#E3E8D8','#4F6140'], FALSE:['停用','#F1DDD5','#9A4A3A'] } }
@@ -125,10 +127,17 @@ const CFG_TYPES = {
 
 function doGet(e) {
   const q = (e && e.parameter) || {};
-  if ((q.action || 'load') !== 'load') return json_(failure_(new ApiError('BAD_ACTION', '未知的操作'), false));
+  const action = q.action || 'load';
   try {
+    // ping：前端每幾秒問一次「資料版本有沒有變」，只查快取、不讀 Sheet，所以很快
+    if (action === 'ping') {
+      if (!q.token || !CacheService.getScriptCache().get('s:' + q.token)) throw new ApiError('AUTH_REQUIRED', '請先登入');
+      return json_({ ok: true, v: ver_() });
+    }
+    if (action !== 'load') throw new ApiError('BAD_ACTION', '未知的操作');
     const me = auth_(q.token);
-    return json_({ ok: true, user: userOf_(me), data: state_() });
+    const v = ver_();
+    return json_({ ok: true, v, user: userOf_(me), data: state_() });
   } catch (x) {
     return json_(failure_(x, false));
   }
@@ -156,7 +165,8 @@ function doPost(e) {
     const extra = fn(p, me) || {};
     SpreadsheetApp.flush();
     if (p.action === 'logout') return json_({ ok: true });
-    return json_(Object.assign({ ok: true }, extra, { data: state_() }));
+    const v = NO_BUMP.includes(p.action) ? ver_() : bump_();
+    return json_(Object.assign({ ok: true }, extra, { v, data: state_() }));
   } catch (x) {
     return json_(failure_(x, !!me));
   } finally {
@@ -233,7 +243,8 @@ const ACTIONS = {
       throw new ApiError('FULL', `此時段已達上限 ${cap} 人`);
 
     const id = nextId_(t);
-    append_(t, decorate_('bookings', { id, sid, date, slot, status: 'pending', updatedAt: ts_() }, cfg));
+    // 預約免審核：送出即成立（額滿、重疊等規則仍由上方檢查把關）
+    append_(t, decorate_('bookings', { id, sid, date, slot, status: 'confirmed', updatedAt: ts_() }, cfg));
     return { id };
   },
 
@@ -441,11 +452,24 @@ function onOpen() {
     .addToUi();
 }
 
-// 在「設定新密碼」欄輸入密碼後立即加密（簡易觸發器）
+// 簡易觸發器：在「設定新密碼」欄輸入後立即加密；手動修改任何系統分頁都通知前端重新載入
 function onEdit(e) {
   try {
-    if (e && e.range && e.range.getSheet().getName() === SHEETS.accounts.name) readAccounts_();
+    const name = e && e.range && e.range.getSheet().getName();
+    if (name === SHEETS.accounts.name) readAccounts_();
+    if (Object.keys(SHEETS).some(k => SHEETS[k].name === name)) bump_();
   } catch (x) {}
+}
+
+// 資料版本號：任何寫入後更新，前端 ping 到不同的版本就重新載入
+function ver_() {
+  const cache = CacheService.getScriptCache();
+  return cache.get('ver') || bump_();   // 快取被清掉時產生新版本，前端多載入一次即可
+}
+function bump_() {
+  const v = Date.now() + '-' + Math.random().toString(36).slice(2, 8);   // 加隨機碼，同一毫秒內兩次寫入也不會撞號
+  CacheService.getScriptCache().put('ver', v, 21600);
+  return v;
 }
 
 // 替學員名單中還沒有帳號的人建立帳號（帳號 = 學員代號），初始密碼只顯示這一次
@@ -599,8 +623,12 @@ function toSheet_(k, f, v) {
 function fromSheet_(k, f, s) {
   const e = ENUMS[k] && ENUMS[k][f];
   if (!e) return s;
-  const hit = Object.keys(e).find(code => e[code][0] === s);
-  return hit || s;
+  const hit = Object.keys(e).find(code => e[code][0] === s) || s;
+  if (k === 'accounts' && f === 'role') {
+    const legacy = hit === '管理人員' ? 'manager' : hit;
+    return ROLE_ALIAS[legacy] || legacy;
+  }
+  return hit;
 }
 
 // 補上顯示用欄位
@@ -732,7 +760,7 @@ function failure_(x, withData) {
   const known = x instanceof ApiError;
   const res = { ok: false, error: known ? x.code : 'SERVER', message: known ? x.message : '伺服器錯誤：' + (x && x.message || x) };
   if (withData) {
-    try { res.data = state_(); } catch (e) { res.data = null; }   // 分頁缺失時無法附帶狀態
+    try { res.v = ver_(); res.data = state_(); } catch (e) { res.data = null; }   // 分頁缺失時無法附帶狀態
   }
   return res;
 }
@@ -910,7 +938,7 @@ function seedCfg_() {
     rules:[
       {id:'r1',title:'人員編制與職責',body:'培訓專員（小赫）：整體課程規劃、教學進度掌控、學員培訓成果評估。\n培訓輔導員（周子耘、王柏凱）：現場實作指導、學員疑難解答、設備操作示範與基礎維護。\n管理人員（研究生）：教室借用登記、設備耗材盤點、環境安全維護與緊急狀況回報。'},
       {id:'r2',title:'半學期固定培訓時段',body:'每週三，採 8 人一組。\nA 時段 14:00–16:00・培訓專員（小赫）・前段班（核心課程 / 基礎培訓）\nB 時段 16:00–18:00・培訓輔導員（子耘、柏凱）・後段班（實作練習 / 進階輔導）'},
-      {id:'r3',title:'自由練習時段管理規範',body:'週三固定培訓以外的開放時間採預約制。\n人數上限：每一時段最高 8 人。\n預約方式：需提前於本系統登記，並經管理人員（研究生）確認。\n簽到簽退：進入前需找當值管理人員簽到，離開前需完成設備復原與環境清潔檢查。'},
+      {id:'r3',title:'自由練習時段管理規範',body:'週三固定培訓以外的開放時間採預約制。\n人數上限：每一時段最高 8 人。\n預約方式：需提前於本系統登記，送出即完成預約，額滿為止。\n簽到簽退：進入前需找當值管理人員簽到，離開前需完成設備復原與環境清潔檢查。'},
       {id:'r4',title:'設備與空間使用規範',body:'設備維護：電腦設備使用前需確認狀態，如有故障需立即回報管理人員記錄；耗材（PLA 絲材、切削料件等）依規定取用並填寫消耗登記。\n環境安全：可攜帶食物但垃圾請帶走；未加蓋飲料不得進入設備區。最後離開者需確認電源、空調及門窗均已關閉。\n考核與請假：無法參加週三固定培訓需提前向培訓專員（小赫）請假；自由時段預約後無故缺席達 3 次，暫停自由預約權限至學期結束。'}
     ]
   };

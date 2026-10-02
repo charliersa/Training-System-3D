@@ -534,7 +534,7 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
 // ── Google Sheet 同步（後端為 Code.gs，規格見 GAS-串接規格.md）
 // 填入 GAS 部署後的 /exec 網址即啟用；留空 = 離線示範模式，資料只存在本機瀏覽器
 const API_URL = 'https://script.google.com/macros/s/AKfycbwqXqZBawwIAOJD4Vysx4giPZ-CXni8-QroIl7QekhQKylLbBCgamwRYtcZzw2ullan/exec';
-const POLL_MS = 30000;   // 每 30 秒向 Sheet 拉一次最新資料（分頁在背景時暫停）
+const PING_MS = 5000;    // 每 5 秒問伺服器資料版本，有變（別人操作或手動改 Sheet）才重新載入；分頁在背景時暫停
 const PUSH_MS = 800;     // 後台設定停止輸入 800ms 後才推送
 // 後台可推送的設定鍵，需與 Code.gs 的 CFG_TYPES 一致
 const CFG_PUSH = ['labBadge','labName','labSub','rulesTitle','checkoutItems','closingItems','semStart','semEnd',
@@ -542,7 +542,7 @@ const CFG_PUSH = ['labBadge','labName','labSub','rulesTitle','checkoutItems','cl
 // 固定角色與權限，需與 Code.gs 的 ROLES 一致（伺服器端會再檢查一次）
 const ROLE_PERMS = {
   admin:['bookings','leaves','attendance','faultFix','restock','config','slots','reset'],
-  manager:['bookings','faultFix','restock'], trainer:['leaves'], tutor:['faultFix'],
+  trainer:['leaves'], tutor:['faultFix'],
   editor:['config','slots'], student:['slots']
 };
 const FIXED_ROLE_LABELS = {admin:'系統管理員', editor:'編輯人員', student:'學員'};
@@ -604,7 +604,7 @@ function seedCfg(){
     rules:[
       {id:'r1',title:'人員編制與職責',body:'培訓專員（小赫）：整體課程規劃、教學進度掌控、學員培訓成果評估。\n培訓輔導員（周子耘、王柏凱）：現場實作指導、學員疑難解答、設備操作示範與基礎維護。\n管理人員（研究生）：教室借用登記、設備耗材盤點、環境安全維護與緊急狀況回報。'},
       {id:'r2',title:'半學期固定培訓時段',body:'每週三，採 8 人一組。\nA 時段 14:00–16:00・培訓專員（小赫）・前段班（核心課程 / 基礎培訓）\nB 時段 16:00–18:00・培訓輔導員（子耘、柏凱）・後段班（實作練習 / 進階輔導）'},
-      {id:'r3',title:'自由練習時段管理規範',body:'週三固定培訓以外的開放時間採預約制。\n人數上限：每一時段最高 8 人。\n預約方式：需提前於本系統登記，並經管理人員（研究生）確認。\n簽到簽退：進入前需找當值管理人員簽到，離開前需完成設備復原與環境清潔檢查。'},
+      {id:'r3',title:'自由練習時段管理規範',body:'週三固定培訓以外的開放時間採預約制。\n人數上限：每一時段最高 8 人。\n預約方式：需提前於本系統登記，送出即完成預約，額滿為止。\n簽到簽退：進入前需找當值管理人員簽到，離開前需完成設備復原與環境清潔檢查。'},
       {id:'r4',title:'設備與空間使用規範',body:'設備維護：電腦設備使用前需確認狀態，如有故障需立即回報管理人員記錄；耗材（PLA 絲材、切削料件等）依規定取用並填寫消耗登記。\n環境安全：可攜帶食物但垃圾請帶走；未加蓋飲料不得進入設備區。最後離開者需確認電源、空調及門窗均已關閉。\n考核與請假：無法參加週三固定培訓需提前向培訓專員（小赫）請假；自由時段預約後無故缺席達 3 次，暫停自由預約權限至學期結束。'}
     ]
   };
@@ -612,7 +612,7 @@ function seedCfg(){
 function seedData(){
   let id=1; const b=(sid,date,slot,status)=>({id:id++,sid,date,slot,status});
   return {
-    role:'manager', me:'A1', page:'dash', nextId:100, attendance:{}, closing:{},
+    role:'admin', me:'A1', page:'dash', nextId:100, attendance:{}, closing:{},
     bookings:[
       b('A8','2026-09-14','p6','noshow'), b('B8','2026-09-15','p2','noshow'), b('B8','2026-09-22','p9','noshow'),
       b('A1','2026-09-21','p2','done'), b('A3','2026-09-21','p2','done'), b('B2','2026-09-24','p6','done'),
@@ -656,7 +656,7 @@ class Component extends DCLogic {
       if(this.state.session) this.pull();
       this._vis=()=>{ if(document.visibilityState==='visible') this.pull(); else this.flushCfg(); };
       document.addEventListener('visibilitychange',this._vis); window.addEventListener('focus',this._vis);
-      this._poll=setInterval(()=>{ if(document.visibilityState==='visible') this.pull(); },POLL_MS);
+      this._poll=setInterval(()=>{ if(document.visibilityState==='visible') this.ping(); },PING_MS);
     } }
   componentWillUnmount(){ window.removeEventListener('resize',this._rs);
     if(this._poll){ clearInterval(this._poll); this._poll=null; document.removeEventListener('visibilitychange',this._vis); window.removeEventListener('focus',this._vis); } }
@@ -677,11 +677,22 @@ class Component extends DCLogic {
       .then(()=>fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,token,...params})}))
       .then(r=>r.json())
       .then(res=>{ if(res.error==='AUTH_REQUIRED'){ this.signedOut(res.message); return; }
-        if(!res.ok) this.flash(res.message||'伺服器拒絕此操作'); if(res.data) this._latest=res.data; this.setState({online:true}); },
+        if(!res.ok) this.flash(res.message||'伺服器拒絕此操作'); if(res.data){ this._latest=res.data; this._ver=res.v; } this.setState({online:true}); },
             ()=>{ this._lost=true; this.setState({online:false}); this.flash('無法連線 Google Sheet，畫面將還原為伺服器資料'); })
       .then(()=>{ if(--this._inflight) return;
         if(this._latest) this.applyServer(this._latest); this._latest=null; this.setState({syncing:false});
         if(this._lost){ this._lost=false; this.pull(); } });
+  }
+  // 輕量檢查：只比對版本號，不同才整包重新載入
+  ping(){
+    if(!API_URL||!this.state.session||this._inflight||this._pulling||this._pinging) return;
+    this._pinging=true;
+    fetch(API_URL+'?action=ping&token='+encodeURIComponent(this.state.session.token)).then(r=>r.json())
+      .then(res=>{ this._pinging=false; if(this.state.online===false) this.setState({online:true});
+        if(res.error==='AUTH_REQUIRED'){ this.signedOut(res.message); return; }
+        // 後端尚未更新到支援 ping 的版本時，退回整包重新載入
+        if(res.ok?res.v!==this._ver:res.error==='BAD_ACTION') this.pull(); },
+        ()=>{ this._pinging=false; if(this.state.online!==false) this.setState({online:false}); });
   }
   pull(){
     if(!API_URL||!this.state.session||this._inflight||this._pulling) return;
@@ -692,7 +703,7 @@ class Component extends DCLogic {
         // 角色或姓名在 Sheet 被改掉時同步更新
         if(res.ok&&res.user) this.saveSession({...this.state.session,...res.user});
         // 拉取期間若有新的寫入送出，這份資料已過期，交給寫入的回應處理
-        if(!res.ok) this.flash(res.message||'讀取失敗'); else if(seq===(this._seq||0)&&!this._inflight) this.applyServer(res.data); },
+        if(!res.ok) this.flash(res.message||'讀取失敗'); else if(seq===(this._seq||0)&&!this._inflight){ this._ver=res.v; this.applyServer(res.data); } },
         ()=>{ this._pulling=false; this.setState({online:false}); });
   }
   // ───── 登入／登出 ─────
@@ -712,7 +723,7 @@ class Component extends DCLogic {
     this.post({action:'login',user,password}).then(res=>{
       this.setState({authBusy:false});
       if(!res.ok){ this.setState({loginError:res.message||'登入失敗'}); return; }
-      this.saveSession({token:res.token,...res.user});
+      this.saveSession({token:res.token,...res.user}); this._ver=res.v;
       this.setState({loginPw:'',page:'dash',role:res.user.role});
       this.applyServer(res.data);
     },()=>this.setState({authBusy:false,loginError:'無法連線伺服器，請稍後再試'}));
@@ -755,7 +766,8 @@ class Component extends DCLogic {
   renderVals(){
     const s=this.state, cfg=s.cfg, cap=Number(cfg.capacity)||1, limit=Math.max(1,Number(cfg.noShowLimit)||1), TD=Number(cfg.trainDay);
     // 連線模式：身分來自登入帳號；離線示範：用左側按鈕切換
-    const session=API_URL?s.session:null, role=API_URL?((session||{}).role||''):s.role;
+    // 「管理人員」已併入系統管理員（舊的本機狀態可能還存著 manager）
+    const session=API_URL?s.session:null, role0=API_URL?((session||{}).role||''):s.role, role=role0==='manager'?'admin':role0;
     const can=p=>(ROLE_PERMS[role]||[]).includes(p);
     const isStudent=role==='student', isMgr=can('bookings'), isTrainer=can('leaves'), canEdit=can('config');
     const STU=cfg.students, SLOTS=cfg.slots.slice().sort((a,b)=>a.start.localeCompare(b.start)), CLS=cfg.classes.slice().sort((a,b)=>a.start.localeCompare(b.start));
@@ -791,12 +803,12 @@ class Component extends DCLogic {
     const NAV=[['dash','今日總覽',''],['staff','人員編制',''],['wed',trainName,isTrainer&&pendingLeaves?pendingLeaves:''],['book','自由預約',isMgr&&pendingAll?pendingAll:''],
       ['check','簽到簽退',isMgr&&todayOpen?todayOpen:''],['equip','設備耗材',openFaults||''],['record','考核紀錄',''],['rules','管理辦法',''],['admin','後台設定','']];
     const nav=NAV.map(([id,label,badge],i)=>({label,badge:badge?String(badge):'',no:pad(i+1),onClick:go(id),bg:s.page===id?'#3B3530':'transparent',fg:s.page===id?'#FBF8F2':'#5A5048'}));
-    const roleButtons=[['student','學員'],['manager',rt.manager],['trainer',rt.trainer],['tutor',rt.tutor],['editor','編輯人員'],['admin','系統管理員']].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
+    const roleButtons=[['student','學員'],['trainer',rt.trainer],['tutor',rt.tutor],['editor','編輯人員'],['admin','系統管理員']].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
 
     // dashboard
     const stats=[
       {label:'目前在場',value:present,unit:'人',go:'check',c:'#4F6140'},
-      {label:'待確認預約',value:pendingAll,unit:'筆',go:'book',c:pendingAll?'#8A6A3A':'#3B3530'},
+      {label:'今日預約',value:todayB.filter(live).length,unit:'筆',go:'book',c:'#3B3530'},
       {label:'未處理故障',value:openFaults,unit:'台',go:'equip',c:openFaults?'#9A4A3A':'#3B3530'},
       {label:'待審請假',value:pendingLeaves,unit:'件',go:'wed',c:'#3B3530'},
       {label:'低庫存耗材',value:lowStock,unit:'項',go:'equip',c:lowStock?'#9A4A3A':'#3B3530'}
@@ -884,7 +896,7 @@ class Component extends DCLogic {
       slotVals={slotOpen:true,slotTitle:`週${DOW[dow(date)]} ${sl.name||''} ${sl.start}–${sl.end}`,slotTitleSub:date.replace(/-/g,'.'),slotCount:String(n),slotRows:rows,slotEmpty:!rows.length,slotNote:note,
         slotCanBook:!already&&!note,slotCanCancel:!!mineB,
         // guard here too, not only in the template, so a stale handler cannot bypass the rules
-        bookSlot:()=>{if(!isStudent||!me||already||note)return; this.setState(st=>({bookings:[...st.bookings,{id:st.nextId,sid:me,date,slot,status:'pending'}],nextId:st.nextId+1}));this.flash(`已送出預約，待${rt.manager}確認`);this.call('book',{sid:me,date,slot});},
+        bookSlot:()=>{if(!isStudent||!me||already||note)return; this.setState(st=>({bookings:[...st.bookings,{id:st.nextId,sid:me,date,slot,status:'confirmed'}],nextId:st.nextId+1}));this.flash('預約成功');this.call('book',{sid:me,date,slot});},
         cancelSlot:()=>{if(!mineB)return; this.setState(st=>({bookings:st.bookings.filter(b=>b.id!==mineB.id)}));this.flash('已取消預約');this.call('cancelBooking',{id:mineB.id});}};
     }
 
@@ -1013,7 +1025,7 @@ class Component extends DCLogic {
         const reason=s.leaveReason.trim(); this.setState(st=>({leaves:[...st.leaves,{id:Date.now(),sid:me,date:leaveDate,reason,status:'pending'}],leaveReason:''}));this.flash(`已送出，待${rt.trainer}審核`);this.call('submitLeave',{sid:me,date:leaveDate,reason});},
       leaveTitle:isStudent?'我的請假紀錄':'請假申請',leaveList,leaveEmpty:!leaveList.length,
       weekLabel:`${md(days[0])} – ${md(days[4])}`,weekDays,grid,gridEmpty:!grid.length,prevWeek:()=>this.setState({week:Math.max(minWeek,week-1)}),nextWeek:()=>this.setState({week:Math.min(maxWeek,week+1)}),
-      meSuspended:isStudent&&mySusp,semEndLabel:cfg.semEnd.replace(/-/g,'/'),bookHint:isMgr?'並確認待審預約':isStudent?'並預約':'',
+      meSuspended:isStudent&&mySusp,semEndLabel:cfg.semEnd.replace(/-/g,'/'),bookHint:isMgr?'並查看預約名單':isStudent?'並預約':'',
       ...slotVals,closeSlot:()=>this.setState({slotSel:null}),
       presentCount:String(present),notManager:!isMgr,todayRows,todayEmpty:!todayRows.length,
       checkoutOpen:!!coB,checkoutName:coB?name(coB.sid):'',checkItems,checkoutBlocked:!allChecked,checkoutBtnBg:allChecked?'#B5654A':'#CFC5B3',
