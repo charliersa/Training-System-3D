@@ -53,6 +53,7 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
     </sc-if>
     <div style="font-size:12px;color:#8C8173">登入為：<span style="color:#3B3530">{{ currentName }}</span><sc-if value="{{ roleLabel }}"><span style="margin-left:6px;padding:1px 6px;background:#3B3530;color:#FBF8F2;font-size:11px">{{ roleLabel }}</span></sc-if></div>
     <sc-if value="{{ showAccount }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ openNotices }}" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid #CFC5B3;background:{{ noticeBtnBg }};color:#3B3530;font-size:13px;cursor:pointer">通知<sc-if value="{{ unreadLabel }}"><span style="min-width:20px;padding:1px 6px;background:#B5654A;color:#fff;font-size:11px;text-align:center">{{ unreadLabel }}</span></sc-if></button>
       <div style="display:flex;gap:4px">
         <button onClick="{{ openPw }}" style="flex:1;padding:7px 6px;border:1px solid #CFC5B3;background:transparent;color:#5A5048;font-size:12px;cursor:pointer">修改密碼</button>
         <button onClick="{{ logout }}" style="flex:1;padding:7px 6px;border:1px solid #CFC5B3;background:transparent;color:#5A5048;font-size:12px;cursor:pointer">登出</button>
@@ -509,6 +510,27 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
   </div>
 </sc-if>
 
+<sc-if value="{{ noticeOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeNotices }}" style="position:fixed;inset:0;background:rgba(59,53,48,.35);z-index:20"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);background:#FBF8F2;border-left:1px solid #8C8173;z-index:21;display:flex;flex-direction:column">
+    <div style="padding:18px 20px;border-bottom:1px solid #D6CCBA;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div style="display:flex;flex-direction:column;gap:4px"><span style="font-family:'Cormorant Garamond','Noto Serif TC',serif;font-size:12px;color:#857A6C">NOTICES</span><span style="font-size:20px;font-weight:600">通知</span><span style="font-size:12px;color:#857A6C">{{ noticeHint }}</span></div>
+      <button onClick="{{ closeNotices }}" style="border:1px solid #D6CCBA;background:#FBF8F2;width:32px;height:32px;cursor:pointer;font-size:16px">×</button>
+    </div>
+    <sc-if value="{{ canDesktop }}"><button onClick="{{ enableDesktop }}" style="margin:12px 20px 0;padding:9px;border:1px solid #B5654A;background:#FBF8F2;color:#B5654A;font-size:13px;cursor:pointer">開啟桌面通知（分頁在背景時也會提醒）</button></sc-if>
+    <div style="flex:1;overflow:auto">
+      <sc-for list="{{ noticeList }}" as="nt" hint-placeholder-count="3">
+        <div style="padding:12px 20px;border-bottom:1px solid #E6DDCD;display:flex;flex-direction:column;gap:2px;background:{{ nt.bg }}">
+          <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:14px">{{ nt.t }}</b><span style="font-size:12px;color:#A89C8A">{{ nt.at }}</span></div>
+          <span style="font-size:13px;color:#5A5048">{{ nt.body }}</span>
+        </div>
+      </sc-for>
+      <sc-if value="{{ noticeEmpty }}"><div style="padding:20px;color:#857A6C;font-size:14px">目前沒有通知。</div></sc-if>
+    </div>
+    <sc-if value="{{ noticeHas }}"><button onClick="{{ clearNotices }}" style="margin:12px 20px;padding:9px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:13px;cursor:pointer">清除全部</button></sc-if>
+  </div>
+</sc-if>
+
 <sc-if value="{{ recOpen }}" hint-placeholder-val="{{ false }}">
   <div style="position:fixed;inset:0;background:rgba(59,53,48,.45);z-index:30;display:grid;place-items:center;padding:16px;overflow:auto">
     <div style="width:min(480px,100%);background:#FBF8F2;border:1px solid #8C8173;display:flex;flex-direction:column">
@@ -567,6 +589,7 @@ const CFG_PUSH = ['labBadge','labName','labSub','rulesTitle','checkoutItems','cl
 // 固定角色與權限，需與 Code.gs 的 ROLES 一致（伺服器端會再檢查一次）
 const ROLE_PERMS = {
   admin:['bookings','leaves','attendance','faultFix','restock','config','slots','reset','records'],
+  manager:['bookings','leaves','attendance','faultFix','restock','config','slots','records'],
   trainer:['leaves','records'], tutor:['faultFix'],
   editor:['config','slots'], student:['slots']
 };
@@ -640,7 +663,7 @@ function seedCfg(){
 function seedData(){
   let id=1; const b=(sid,date,slot,status)=>({id:id++,sid,date,slot,status});
   return {
-    role:'admin', me:'A1', page:'dash', nextId:100, attendance:{}, closing:{}, records:[],
+    role:'admin', me:'A1', page:'dash', nextId:100, attendance:{}, closing:{}, records:[], notices:[], unread:0,
     bookings:[
       b('A8','2026-09-14','p6','noshow'), b('B8','2026-09-15','p2','noshow'), b('B8','2026-09-22','p9','noshow'),
       b('A1','2026-09-21','p2','done'), b('A3','2026-09-21','p2','done'), b('B2','2026-09-24','p6','done'),
@@ -657,7 +680,7 @@ function seedData(){
     cfg:seedCfg()
   };
 }
-const DATA_KEYS = ['role','me','page','bookings','nextId','leaves','attendance','faults','useLog','closing','records','cfg'];
+const DATA_KEYS = ['role','me','page','bookings','nextId','leaves','attendance','faults','useLog','closing','records','notices','unread','cfg'];
 // cfg lists a student is allowed to edit in 後台設定 'shared settings, so the tab carries a warning'
 const STUDENT_LISTS = ['slots'];
 const STUDENT_TABS = ['slots'];
@@ -665,7 +688,7 @@ const STUDENT_TABS = ['slots'];
 const LEGACY_SLOTS = {s1:'p2',s2:'p6',s3:'p9'};
 function freshUI(){ return {week:0, wedDate:'', slotSel:null, checkoutId:null, checks:{}, toast:'',
   adminTab:'basic', leaveDate:'', leaveReason:'', faultEq:'', faultDesc:'', useItem:'', useQty:1,
-  loginUser:'', loginPw:'', loginError:'', authBusy:false, pwOpen:false, pwCur:'', pwNew:'', pwNew2:'', pwError:'', recEdit:null, recError:''}; }
+  loginUser:'', loginPw:'', loginError:'', authBusy:false, pwOpen:false, pwCur:'', pwNew:'', pwNew2:'', pwError:'', recEdit:null, recError:'', noticeOpen:false}; }
 
 class Component extends DCLogic {
   state = (() => {
@@ -687,7 +710,8 @@ class Component extends DCLogic {
       if(this.state.session) this.pull();
       this._vis=()=>{ if(document.visibilityState==='visible') this.pull(); else this.flushCfg(); };
       document.addEventListener('visibilitychange',this._vis); window.addEventListener('focus',this._vis);
-      this._poll=setInterval(()=>{ if(document.visibilityState==='visible') this.ping(); },PING_MS);
+      // 分頁在背景時改為每 30 秒檢查一次，仍能收到預約通知
+      this._poll=setInterval(()=>{ this._pn=(this._pn||0)+1; if(document.visibilityState==='visible'||this._pn%6===0) this.ping(); },PING_MS);
     } }
   componentWillUnmount(){ window.removeEventListener('resize',this._rs); clearInterval(this._tick); this._tick=null;
     if(this._poll){ clearInterval(this._poll); this._poll=null; document.removeEventListener('visibilitychange',this._vis); window.removeEventListener('focus',this._vis); } }
@@ -734,7 +758,7 @@ class Component extends DCLogic {
         // 角色或姓名在 Sheet 被改掉時同步更新
         if(res.ok&&res.user) this.saveSession({...this.state.session,...res.user});
         // 拉取期間若有新的寫入送出，這份資料已過期，交給寫入的回應處理
-        if(!res.ok) this.flash(res.message||'讀取失敗'); else if(seq===(this._seq||0)&&!this._inflight){ this._ver=res.v; this.applyServer(res.data); } },
+        if(!res.ok) this.flash(res.message||'讀取失敗'); else if(seq===(this._seq||0)&&!this._inflight){ this._ver=res.v; this.applyServer(res.data,true); } },
         ()=>{ this._pulling=false; this.setState({online:false}); });
   }
   // ───── 登入／登出 ─────
@@ -744,7 +768,8 @@ class Component extends DCLogic {
     clearTimeout(this._pushT); this._dirty={}; this._latest=null;
     try{ localStorage.removeItem(KEY); }catch(e){}
     this.saveSession(null);
-    this.setState({bookings:[],leaves:[],attendance:{},faults:[],useLog:[],closing:{},records:[],slotSel:null,checkoutId:null,pwOpen:false,recEdit:null,loginError:msg||''});
+    this._primed=false;
+    this.setState({bookings:[],leaves:[],attendance:{},faults:[],useLog:[],closing:{},records:[],notices:[],unread:0,noticeOpen:false,slotSel:null,checkoutId:null,pwOpen:false,recEdit:null,loginError:msg||''});
   }
   post(body){ return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)}).then(r=>r.json()); }
   login(){
@@ -775,8 +800,39 @@ class Component extends DCLogic {
       this.setState({pwOpen:false,pwCur:'',pwNew:'',pwNew2:''}); this.flash('密碼已更新');
     },()=>this.setState({authBusy:false,pwError:'無法連線伺服器，請稍後再試'}));
   }
-  applyServer(d){
+  // 比對新舊資料，產生「別人做了什麼」的通知；第一次載入只建立基準，不發通知
+  noticeDiff(d){
+    const s=this.state, role=(s.session||{}).role, perms=ROLE_PERMS[role]||[];
+    const cfg=Object.assign(seedCfg(), d.cfg||{});
+    const stu=id=>(cfg.students.find(x=>x.id===id)||{}).name||id;
+    const when=b=>{ const sl=cfg.slots.find(x=>x.id===b.slot)||{}; return `${md(b.date)}（${DOW[dow(b.date)]}）${sl.name||''} ${sl.start||''}–${sl.end||''}`; };
+    const oldB=new Map(s.bookings.map(b=>[b.id,b])), newB=new Map((d.bookings||[]).map(b=>[b.id,b]));
+    const oldL=new Map(s.leaves.map(l=>[l.id,l])), out=[];
+    if(perms.includes('bookings')){
+      newB.forEach((b,id)=>{ if(!oldB.has(id)) out.push({t:'新預約',body:`${stu(b.sid)}・${when(b)}`}); });
+      oldB.forEach((b,id)=>{ if(!newB.has(id)&&b.date>=TODAY) out.push({t:'取消預約',body:`${stu(b.sid)}・${when(b)}`}); });
+    }
+    if(perms.includes('leaves'))
+      (d.leaves||[]).forEach(l=>{ if(!oldL.has(l.id)&&l.status==='pending') out.push({t:'請假申請',body:`${stu(l.sid)}・${md(l.date)}・${l.reason}`}); });
+    if(role==='student'){
+      const me=s.session.sid;
+      oldB.forEach((b,id)=>{ if(b.sid!==me) return; const n=newB.get(id);
+        if(!n){ if(b.date>=TODAY) out.push({t:'預約已被取消',body:when(b)}); }
+        else if(n.status!==b.status) out.push({t:'預約狀態更新',body:`${when(b)}・${(T[n.status]||{t:n.status}).t}`}); });
+      (d.leaves||[]).forEach(l=>{ const o=oldL.get(l.id); if(l.sid===me&&o&&o.status!==l.status)
+        out.push({t:l.status==='approved'?'請假已核准':'請假已退回',body:`${md(l.date)}・${l.reason}`}); });
+    }
+    if(!out.length) return;
+    const at=md2(TODAY)+' '+twNow().hm;
+    this.setState(st=>({notices:[...out.map(x=>({...x,at,id:uid()})),...(st.notices||[])].slice(0,50),unread:(st.unread||0)+out.length}));
+    this.flash(out.length===1?`${out[0].t}：${out[0].body}`:`${out.length} 則新通知`);
+    try{ if(document.visibilityState!=='visible'&&window.Notification&&Notification.permission==='granted')
+      out.slice(0,3).forEach(x=>new Notification(x.t,{body:x.body})); }catch(e){}
+  }
+  applyServer(d, notify){
     if(!d) return;
+    if(notify&&this._primed) this.noticeDiff(d);
+    this._primed=true;
     // 尚未推送的後台編輯保留本機版本，不被伺服器舊值蓋掉
     const cfg=Object.assign(seedCfg(), d.cfg||{}); Object.keys(this._dirty||{}).forEach(k=>{ cfg[k]=this.state.cfg[k]; });
     this.setState({bookings:d.bookings||[],leaves:d.leaves||[],attendance:d.attendance||{},faults:d.faults||[],useLog:d.useLog||[],closing:d.closing||{},records:d.records||[],cfg});
@@ -799,8 +855,7 @@ class Component extends DCLogic {
     const ended=(d,sl)=>d<TODAY||(d===TODAY&&String(sl.end)<=tw.hm);
     const s=this.state, cfg=s.cfg, cap=Number(cfg.capacity)||1, limit=Math.max(1,Number(cfg.noShowLimit)||1), TD=Number(cfg.trainDay);
     // 連線模式：身分來自登入帳號；離線示範：用左側按鈕切換
-    // 「管理人員」已併入系統管理員（舊的本機狀態可能還存著 manager）
-    const session=API_URL?s.session:null, role0=API_URL?((session||{}).role||''):s.role, role=role0==='manager'?'admin':role0;
+    const session=API_URL?s.session:null, role=API_URL?((session||{}).role||''):s.role;
     const can=p=>(ROLE_PERMS[role]||[]).includes(p);
     const isStudent=role==='student', isMgr=can('bookings'), isTrainer=can('leaves'), canEdit=can('config');
     const STU=cfg.students, SLOTS=cfg.slots.slice().sort((a,b)=>a.start.localeCompare(b.start)), CLS=cfg.classes.slice().sort((a,b)=>a.start.localeCompare(b.start));
@@ -839,7 +894,7 @@ class Component extends DCLogic {
     const NAV=[['dash','今日總覽',''],['staff','人員編制',''],['wed',trainName,isTrainer&&pendingLeaves?pendingLeaves:''],['book','自由預約',isMgr&&pendingAll?pendingAll:''],
       ['check','簽到簽退',isMgr&&todayOpen?todayOpen:''],['equip','設備耗材',openFaults||''],['record','考核紀錄',''],['rules','管理辦法',''],['admin','後台設定','']];
     const nav=NAV.filter(([id])=>!(isStudent&&id==='record')).map(([id,label,badge],i)=>({label,badge:badge?String(badge):'',no:pad(i+1),onClick:go(id),bg:s.page===id?'#3B3530':'transparent',fg:s.page===id?'#FBF8F2':'#5A5048'}));
-    const roleButtons=[['student','學員'],['trainer',rt.trainer],['tutor',rt.tutor],['editor','編輯人員'],['admin','系統管理員']].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
+    const roleButtons=[['student','學員'],['manager',rt.manager],['trainer',rt.trainer],['tutor',rt.tutor],['editor','編輯人員'],['admin','系統管理員']].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
 
     // dashboard
     const stats=[
@@ -1042,6 +1097,13 @@ class Component extends DCLogic {
       openPw:()=>this.setState({pwOpen:true,pwCur:'',pwNew:'',pwNew2:'',pwError:''}),closePw:()=>this.setState({pwOpen:false}),
       onPwCur:e=>this.setState({pwCur:e.target.value}),onPwNew:e=>this.setState({pwNew:e.target.value}),onPwNew2:e=>this.setState({pwNew2:e.target.value}),
       savePw:()=>this.changePw(),
+      noticeOpen:!!s.noticeOpen,unreadLabel:s.unread?String(s.unread):'',noticeBtnBg:s.unread?'#F3E6CF':'transparent',
+      noticeList:(s.notices||[]).map((n,i)=>({...n,bg:i<(s.noticeSeen||0)?'#F3E6CF':'transparent'})),noticeEmpty:!(s.notices||[]).length,noticeHas:!!(s.notices||[]).length,
+      noticeHint:can('bookings')?'學員預約、取消與請假申請會即時出現在這裡':'你的預約與請假有變動時會出現在這裡',
+      canDesktop:typeof window.Notification!=='undefined'&&window.Notification.permission==='default',
+      enableDesktop:()=>{ try{ window.Notification.requestPermission().then(()=>this.setState({tick:Date.now()})); }catch(e){} },
+      openNotices:()=>this.setState(st=>({noticeOpen:true,noticeSeen:st.unread||0,unread:0})),closeNotices:()=>this.setState({noticeOpen:false,noticeSeen:0}),
+      clearNotices:()=>this.setState({notices:[],unread:0,noticeSeen:0}),
       recordHint:canRec?'可點「編輯」手動調整缺席、停權或加備註。':'',
       ...(()=>{ const r=s.recEdit; if(!r||!canRec) return {recOpen:false};
         const raw=nsRaw(r.sid), adj=parseInt(r.nsAdj,10)||0, eff=Math.max(0,raw+adj), rc=recOf(r.sid);

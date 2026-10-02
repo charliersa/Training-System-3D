@@ -15,7 +15,7 @@ const SHEET_ID = '';   // '' = 與此腳本綁定的試算表（擴充功能 →
 const TZ = 'Asia/Taipei';
 const SEED_DATE = '2026-09-30';   // 示範資料的基準日期（只用於「重設示範資料」）；系統的「今天」一律是台灣真實日期
 
-// 固定角色與權限（系統管理員已含原「管理人員」的工作）。培訓專員／培訓輔導員的顯示名稱以後台「人員編制」為準
+// 固定角色與權限。管理人員與系統管理員同樣有全部管理權限，只差「重設全部資料」僅限系統管理員
 //   bookings   確認、婉拒、簽到、簽退、登記缺席、代學員預約或取消
 //   leaves     審核請假、代學員請假
 //   attendance 點名任何班別（其他角色只能點自己負責的班別，依「培訓班別」的負責職務）
@@ -24,13 +24,12 @@ const SEED_DATE = '2026-09-30';   // 示範資料的基準日期（只用於「�
 //   records    調整學員缺席次數、停權與考核備註（學員看不到考核紀錄）
 const ROLES = {
   admin:   { label:'系統管理員', perms:['bookings','leaves','attendance','faultFix','restock','config','slots','reset','records'] },
+  manager: { label:'管理人員',   perms:['bookings','leaves','attendance','faultFix','restock','config','slots','records'] },
   trainer: { label:'培訓專員',   perms:['leaves','records'] },
   tutor:   { label:'培訓輔導員', perms:['faultFix'] },
   editor:  { label:'編輯人員',   perms:['config','slots'] },
   student: { label:'學員',       perms:['slots'] }
 };
-// 舊角色併入現有角色：帳號管理分頁裡填「管理人員」的帳號視為系統管理員
-const ROLE_ALIAS = { manager: 'admin' };
 const SESSION_HOURS = 6;   // 登入有效時間；有操作就自動延長
 const NO_BUMP = ['login', 'logout', 'changePassword'];   // 不改動共用資料的操作，不需通知其他人重新載入
 
@@ -76,7 +75,7 @@ const ENUMS = {
   attendance: { present: { TRUE:['出席','#E3E8D8','#4F6140'], FALSE:['未出席','#ECE6DA','#857A6C'] } },
   records:    { suspend: { auto:['依規則','#FFFFFF','#857A6C'], on:['強制停權','#F1DDD5','#9A4A3A'],
                            off:['解除停權','#E3E8D8','#4F6140'] } },
-  accounts:   { role:    { admin:['系統管理員','#3B3530','#FBF8F2'],
+  accounts:   { role:    { admin:['系統管理員','#3B3530','#FBF8F2'], manager:['管理人員','#E2E6EA','#4A5A6E'],
                            trainer:['培訓專員','#F3E6CF','#8A6A3A'], tutor:['培訓輔導員','#E3E8D8','#4F6140'],
                            editor:['編輯人員','#ECE6DA','#6B7A5A'], student:['學員','#FFFFFF','#3B3530'] },
                 active:  { TRUE:['啟用','#E3E8D8','#4F6140'], FALSE:['停用','#F1DDD5','#9A4A3A'] } }
@@ -660,12 +659,7 @@ function toSheet_(k, f, v) {
 function fromSheet_(k, f, s) {
   const e = ENUMS[k] && ENUMS[k][f];
   if (!e) return s;
-  const hit = Object.keys(e).find(code => e[code][0] === s) || s;
-  if (k === 'accounts' && f === 'role') {
-    const legacy = hit === '管理人員' ? 'manager' : hit;
-    return ROLE_ALIAS[legacy] || legacy;
-  }
-  return hit;
+  return Object.keys(e).find(code => e[code][0] === s) || s;
 }
 
 // 補上顯示用欄位
