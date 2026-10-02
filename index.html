@@ -1051,7 +1051,7 @@ class Component extends DCLogic {
       else this.setCfg(c=>({...c,[list]:c[list].filter((_,j)=>j!==i)})); this.flash('已刪除'); };
     const addTo=(list,mk)=>()=>{ if(!canEditList(list)) return; this.setCfg(c=>({...c,[list]:[...c[list],mk(c)]})); };
     const rows=(list,fieldsFn)=>{ const ed=canEditList(list);
-      return cfg[list].map((x,i)=>({num:pad(i+1),fields:fieldsFn(x,i).map(f=>({...f,ro:!ed})),canDelete:ed,onDelete:del(list,i)})); };
+      return cfg[list].map((x,i)=>({num:pad(i+1),fields:fieldsFn(x,i).map(f=>({...f,ro:f.lock||!ed})),canDelete:ed,onDelete:del(list,i)})); };
     const roleOpts=cfg.roles.map(r=>({v:r.key,t:r.title}));
     const classOpts=[{v:'',t:'未分班'}].concat(cfg.classes.map(c=>({v:c.id,t:`${c.code}・${c.name}`})));
     const dayOpts=[1,2,3,4,5].map(n=>({v:String(n),t:'週'+DOW[n]}));
@@ -1068,8 +1068,10 @@ class Component extends DCLogic {
         rows:rows('classes',(c,i)=>[F('代號',c.code,setItem('classes',i,'code'),{flex:'0 1 100px'}),F('班名',c.name,setItem('classes',i,'name'),{flex:'1 1 120px'}),F('開始',c.start,setItem('classes',i,'start'),{type:'time',flex:'0 1 120px'}),F('結束',c.end,setItem('classes',i,'end'),{type:'time',flex:'0 1 120px'}),F('課程說明',c.desc,setItem('classes',i,'desc'),{flex:'2 1 180px'}),F('負責職務',c.leadRole,setItem('classes',i,'leadRole'),{sel:roleOpts,flex:'1 1 130px'})])}],
       slots:[{title:'自由編排時段',hint:'週一至週五；「開放預約」設為否則僅顯示不可預約；與固定培訓重疊的時段會自動封鎖',hasAdd:canEditList('slots'),addLabel:'新增時段',onAdd:addTo('slots',()=>({id:uid(),name:'新節次',start:'19:00',end:'20:00',note:'自由時間',slogan:'',open:'yes'})),
         rows:rows('slots',(x,i)=>[F('節次',x.name,setItem('slots',i,'name'),{flex:'1 1 90px'}),F('開始',x.start,setItem('slots',i,'start'),{type:'time',flex:'1 1 110px'}),F('結束',x.end,setItem('slots',i,'end'),{type:'time',flex:'1 1 110px'}),F('備註',x.note,setItem('slots',i,'note'),{flex:'1 1 110px'}),F('標語',x.slogan,setItem('slots',i,'slogan'),{flex:'1 1 120px'}),F('開放預約',x.open||'yes',setItem('slots',i,'open'),{sel:[{v:'yes',t:'是'},{v:'no',t:'否'}],flex:'0 1 100px'})])}],
-      students:[{title:`學員名單（${STU.length} 人）`,hint:'班別決定固定培訓分組',hasAdd:canEdit,addLabel:'新增學員',onAdd:addTo('students',c=>({id:uid(),name:'新學員',group:(c.classes[0]||{}).id||''})),
-        rows:rows('students',(x,i)=>[F('姓名',x.name,setItem('students',i,'name')),F('班別',x.group,setItem('students',i,'group'),{sel:classOpts})])}],
+      students:[{title:`學員名單（${STU.length} 人）`,hint:'班別決定固定培訓分組；學員代號用於帳號對應，建立後不可修改。名單同步存於 Google Sheet「學員名單」分頁',hasAdd:canEdit,addLabel:'新增學員',
+        // 新學員代號 = 班別代號 + 下一個號碼（A9、B1…）
+        onAdd:addTo('students',c=>{ const g=(c.classes[0]||{}).id||'S'; let n=1; while(c.students.some(s=>s.id===g+n)) n++; return {id:g+n,name:'新學員',group:(c.classes[0]||{}).id||''}; }),
+        rows:rows('students',(x,i)=>[{...F('學員代號',x.id,()=>{},{flex:'0 1 110px'}),lock:true},F('姓名',x.name,setItem('students',i,'name')),F('班別',x.group,setItem('students',i,'group'),{sel:classOpts})])}],
       equip:[{title:`設備清單（${cfg.equipment.length} 台）`,hint:'編號顯示於設備看板與故障回報',hasAdd:canEdit,addLabel:'新增設備',onAdd:addTo('equipment',()=>({key:uid(),code:'NEW',type:'設備'})),
         rows:rows('equipment',(x,i)=>[F('編號',x.code,setItem('equipment',i,'code')),F('類型',x.type,setItem('equipment',i,'type'))])}],
       consum:[{title:'耗材項目',hint:'低於安全量時標示警示；補貨量為每次按「補貨」增加的數量',hasAdd:canEdit,addLabel:'新增耗材',onAdd:addTo('consumables',()=>({id:uid(),name:'新耗材',unit:'個',stock:0,min:1,max:10,step:1})),

@@ -142,7 +142,7 @@ pending ──► confirmed ──► checkedin ──► done
 | `roles` | 陣列 | 3 筆 | `{key,title,people,duties}` |
 | `classes` | 陣列 | 2 筆 | `{id,code,start,end,name,desc,leadRole}` |
 | `slots` | 陣列 | 14 筆 | `{id,name,start,end,note,slogan,open}` |
-| `students` | 陣列 | 16 筆 | `{id,name,group}` |
+| `students` | 陣列 | 16 筆 | `{id,name,group}`，**已移至「學員名單」分頁**；`setConfig('students')` 會寫回該分頁 |
 | `equipment` | 陣列 | 13 筆 | `{key,code,type}` |
 | `consumables` | 陣列 | 3 筆 | `{id,name,unit,stock,min,max,step}` |
 | `rules` | 陣列 | 4 筆 | `{id,title,body}` |
@@ -499,6 +499,7 @@ GAS 最常見的困惑：改了 `Code.gs` 按儲存，`/exec` 卻還是舊行為
 
 | 分頁 | 對應第 2 節 | 欄位（左起） |
 |---|---|---|
+| 學員名單 | `Config.students`（已移出） | 學員代號、姓名、班別代號（一位學員一列；班別可填代號、班名或時段代號） |
 | 預約紀錄 | `Bookings` | 編號、日期、時段、學員、狀態、學員代號、時段代號、最後更新 |
 | 請假申請 | `Leaves` | 編號、培訓日、學員、請假原因、狀態、學員代號、最後更新 |
 | 培訓點名 | `Attendance` | 培訓日、學員、出席、學員代號、最後更新 |

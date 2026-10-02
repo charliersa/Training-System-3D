@@ -56,6 +56,9 @@ const SHEETS = {
   records:    { name: '考核調整', tab: '#7A5C8A',
                 cols: { sname:'學員', nsAdj:'缺席調整', suspend:'停權設定', reason:'調整原因', note:'備註',
                         by:'修改人', updatedAt:'最後更新', sid:'學員代號' } },
+  // 學員名單：一位學員一列。學員代號建立後請勿修改（預約、點名、帳號都靠它對應）
+  students:   { name: '學員名單', tab: '#B08D57',
+                cols: { id:'學員代號', name:'姓名', group:'班別代號' } },
   // 新增帳號：填帳號、姓名、角色（學員另填學員代號），在「設定新密碼」輸入密碼，系統會立即加密並清空該格
   accounts:   { name: '帳號管理', tab: '#5A5048',
                 cols: { user:'帳號', name:'姓名', role:'角色', sid:'學員代號', active:'狀態',
@@ -81,9 +84,9 @@ const ENUMS = {
                 active:  { TRUE:['啟用','#E3E8D8','#4F6140'], FALSE:['停用','#F1DDD5','#9A4A3A'] } }
 };
 // 資料分頁（重設示範資料只動這些；帳號管理永遠不會被清除）
-const DATA_TABLES = ['bookings', 'leaves', 'attendance', 'faults', 'useLog', 'config', 'records'];
+const DATA_TABLES = ['bookings', 'leaves', 'attendance', 'faults', 'useLog', 'config', 'records', 'students'];
 // 後來才新增的分頁：缺少時自動建立，已部署的系統不必重跑 setup()
-const AUTO_TABLES = ['records'];
+const AUTO_TABLES = ['records', 'students'];
 
 // 排版：欄寬（px）、淡色欄（代號類）、置中欄、自動換行欄
 const LAYOUT = {
@@ -100,6 +103,7 @@ const LAYOUT = {
   config:     { widths:{ label:170, key:130, value:620 }, muted:['key'], center:[] },
   records:    { widths:{ sname:100, nsAdj:80, suspend:96, reason:220, note:300, by:100, updatedAt:150, sid:80 },
                 muted:['by','updatedAt','sid'], center:['nsAdj','suspend','updatedAt','sid'], wrap:['reason','note'] },
+  students:   { widths:{ id:110, name:160, group:100 }, center:['id','group'] },
   accounts:   { widths:{ user:110, name:110, role:110, sid:80, active:70, newpw:130, pw:220, lastLogin:150 },
                 muted:['pw','lastLogin'], center:['role','sid','active','lastLogin'] }
 };
@@ -109,7 +113,7 @@ const CFG_LABELS = {
   labBadge:'左上角標誌字', labName:'系統名稱', labSub:'副標', rulesTitle:'管理辦法標題',
   semStart:'學期開始', semEnd:'學期結束', trainDay:'固定培訓日（0=日…6=六）', capacity:'每時段人數上限',
   noShowLimit:'無故缺席停權次數', roles:'人員編制與職責', classes:'固定培訓班別', slots:'自由編排時段',
-  students:'學員名單', equipment:'設備清單', consumables:'耗材項目與庫存', rules:'管理辦法條文',
+  students:'（已移至「學員名單」分頁，此列可刪除）', equipment:'設備清單', consumables:'耗材項目與庫存', rules:'管理辦法條文',
   checkoutItems:'簽退檢查項目', closingItems:'最後離開者檢查項目', closing:'最後離開者勾選狀態',
   slotsV2:'時段結構版本（請勿改動）', today:'（已停用，可刪除此列）'
 };
@@ -559,6 +563,10 @@ function checkCfgEntries_(list, cfg, me) {
     out[key] = v;
   });
   // 以整包陣列覆寫 slots 時，同樣不可讓仍有預約的時段消失（等同 deleteSlot）
+  if (out.students) {
+    const ids = out.students.map(s => String(s.id || '').trim());
+    if (ids.some(id => !id) || new Set(ids).size !== ids.length) throw new ApiError('BAD_PAYLOAD', '學員代號不可空白或重複');
+  }
   if (out.slots) {
     if (out.slots.some(s => typeof s.id !== 'string' || !s.id)) throw new ApiError('BAD_PAYLOAD', '設定「slots」格式錯誤');
     const kept = new Set(out.slots.map(s => s.id));
@@ -719,11 +727,46 @@ function readCfg_() {
   ['roles', 'classes', 'slots', 'students', 'equipment', 'consumables', 'rules'].forEach(k => {
     if (!Array.isArray(cfg[k])) cfg[k] = [];
   });
+  cfg.students = readStudents_(cfg.classes);
   return { t, cfg };
+}
+
+// 學員名單分頁 → [{id,name,group}]。代號留空時以姓名當代號；班別可填代號（A）、名稱（前段班）或時段代號（A 時段）
+function readStudents_(classes) {
+  const seen = new Set(), out = [];
+  readTable_('students').rows.forEach(r => {
+    const id = r.id || r.name;
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const g = r.group, cls = classes.find(c => c.id === g) || classes.find(c => c.name === g || c.code === g);
+    out.push({ id, name: r.name || id, group: cls ? cls.id : g });
+  });
+  return out;
+}
+
+// 寫回學員名單：依代號更新、刪除、新增，保留使用者自行加在同一列的其他欄位
+function writeStudents_(list) {
+  const t = readTable_('students');
+  const want = new Map(list.map(s => [String(s.id), s]));
+  // 由下往上處理，刪列不會影響上方列號
+  t.rows.slice().reverse().forEach(r => {
+    const key = r.id || r.name, s = want.get(key);
+    if (!s) { t.sh.deleteRow(r._row); return; }
+    update_(t, r, { id: s.id, name: s.name || '', group: s.group || '' });
+    want.delete(key);
+  });
+  list.forEach(s => { if (want.has(String(s.id))) append_(t, { id: s.id, name: s.name || '', group: s.group || '' }); });
+}
+
+// 直接讀系統設定分頁的某一鍵（不經過 readCfg_，供建立學員名單分頁時使用）
+function rawCfg_(key) {
+  const row = readTable_('config').rows.find(r => r.key === key);
+  try { return row ? JSON.parse(row.value) : undefined; } catch (x) { return undefined; }
 }
 
 function writeCfg_(t, entries) {
   Object.keys(entries).forEach(key => {
+    if (key === 'students') { writeStudents_(entries.students); return; }
     const value = JSON.stringify(entries[key]);
     const row = t.rows.find(r => r.key === key);
     if (row) update_(t, row, { value });
@@ -852,6 +895,14 @@ function ensureSheet_(k) {
     sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]);
   }
   format_(k, sh);
+  // 舊版把學員名單存在系統設定的 JSON：第一次建立分頁時搬過來（全新安裝則留給示範資料寫入）
+  if (k === 'students' && sh.getLastRow() <= 1) {
+    const old = rawCfg_('students');
+    if (Array.isArray(old) && old.length) {
+      const t = readTable_('students');
+      sh.getRange(2, 1, old.length, t.width).setNumberFormat('@').setValues(old.map(s => rowOf_(t, s)));
+    }
+  }
   return sh;
 }
 
@@ -904,6 +955,18 @@ function format_(k, sh) {
     });
   });
   sh.setConditionalFormatRules(rules);
+
+  // 參照型下拉選單（允許其他值，只顯示提醒）
+  const ref = (c, rule) => { if (c) body(c).setDataValidation(rule.setAllowInvalid(true).build()); };
+  if (k === 'students') {
+    const cls = rawCfg_('classes');
+    if (Array.isArray(cls) && cls.length)
+      ref(col('group'), SpreadsheetApp.newDataValidation().requireValueInList(cls.map(c => c.id), true).setHelpText('請選班別代號（後台「培訓班別」）'));
+  }
+  if (k === 'accounts') {
+    const st = ss_().getSheetByName(SHEETS.students.name);
+    if (st) ref(col('sid'), SpreadsheetApp.newDataValidation().requireValueInRange(st.getRange('A2:A'), true).setHelpText('請選「學員名單」上的學員代號'));
+  }
 }
 
 function resetDemoFromEditor() {
@@ -948,7 +1011,8 @@ function seedAll_() {
     ],
     attendance: [],
     records: [],
-    config: Object.keys(cfg).map(key => ({ key, value: JSON.stringify(cfg[key]) }))
+    students: cfg.students,
+    config: Object.keys(cfg).filter(key => key !== 'students').map(key => ({ key, value: JSON.stringify(cfg[key]) }))
   };
 
   DATA_TABLES.forEach(k => {
