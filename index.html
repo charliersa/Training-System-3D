@@ -68,7 +68,7 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
     </sc-for>
   </nav>
   <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;font-size:11px;color:#A89C8A">
-    <div>示範日期 {{ demoDate }}</div>
+    <div>今天 {{ demoDate }}</div>
     <div style="color:{{ syncColor }}">{{ syncLabel }}</div>
     <sc-if value="{{ canReset }}" hint-placeholder-val="{{ true }}"><button onClick="{{ reset }}" style="width:100%;padding:6px;border:1px solid #CFC5B3;background:transparent;color:#8C8173;font-size:11px;cursor:pointer">重設全部示範資料</button></sc-if>
   </div>
@@ -573,7 +573,10 @@ const ROLE_PERMS = {
 const FIXED_ROLE_LABELS = {admin:'系統管理員', editor:'編輯人員', student:'學員'};
 const KEY = 'lab3d-mgmt-v2';
 const SESSION_KEY = 'lab3d-session';
-let TODAY = '2026-09-30';   // 連線時以伺服器回傳的 today 為準
+// 台灣時間的今天與現在時刻（不受使用者電腦時區影響）；每次重繪時更新
+const TW = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+const twNow = () => { const p={}; TW.formatToParts(new Date()).forEach(x=>{p[x.type]=x.value;}); return {date:`${p.year}-${p.month}-${p.day}`, hm:`${p.hour}:${p.minute}`}; };
+let TODAY = twNow().date;
 const DOW = ['日','一','二','三','四','五','六'];
 const EDOW = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
 const NUMS = ['一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
@@ -593,7 +596,7 @@ const md2 = s => { const d=parse(s); return pad(d.getMonth()+1)+'/'+pad(d.getDat
 const dow = s => parse(s).getDay();
 const diffDays = (a,b) => Math.round((parse(b)-parse(a))/86400000);
 const mondayOf = s => add(s, dow(s)===0 ? -6 : 1-dow(s));
-const now = () => { const d=new Date(); return md2(TODAY)+' '+pad(d.getHours())+':'+pad(d.getMinutes()); };
+const now = () => md2(TODAY)+' '+twNow().hm;
 const uid = () => Math.random().toString(36).slice(2,8);
 const lines = s => String(s||'').split('\n').map(x=>x.trim()).filter(Boolean);
 const people = s => String(s||'').split(/[、,，]/).map(x=>x.trim()).filter(Boolean);
@@ -676,14 +679,17 @@ class Component extends DCLogic {
     if(API_URL){ try { session = JSON.parse(localStorage.getItem(SESSION_KEY)) || null; } catch(e) {} }
     return Object.assign(base, saved, {cfg:Object.assign(seedCfg(), saved.cfg||{})}, freshUI(), {session});
   })();
-  componentDidMount(){ this._rs=()=>{const n=window.innerWidth<840; if(n!==this.state.narrow) this.setState({narrow:n,menuOpen:false});}; this._rs(); window.addEventListener('resize',this._rs);
+  componentDidMount(){
+    // 每分鐘重繪一次，讓「已結束」的時段與跨日自動更新
+    if(!this._tick) this._tick=setInterval(()=>this.setState({tick:Date.now()}),60000);
+    this._rs=()=>{const n=window.innerWidth<840; if(n!==this.state.narrow) this.setState({narrow:n,menuOpen:false});}; this._rs(); window.addEventListener('resize',this._rs);
     if(API_URL&&!this._poll){
       if(this.state.session) this.pull();
       this._vis=()=>{ if(document.visibilityState==='visible') this.pull(); else this.flushCfg(); };
       document.addEventListener('visibilitychange',this._vis); window.addEventListener('focus',this._vis);
       this._poll=setInterval(()=>{ if(document.visibilityState==='visible') this.ping(); },PING_MS);
     } }
-  componentWillUnmount(){ window.removeEventListener('resize',this._rs);
+  componentWillUnmount(){ window.removeEventListener('resize',this._rs); clearInterval(this._tick); this._tick=null;
     if(this._poll){ clearInterval(this._poll); this._poll=null; document.removeEventListener('visibilitychange',this._vis); window.removeEventListener('focus',this._vis); } }
   // 連線模式未登入時不寫本機快取（登出後不留下學員名單等資料）
   componentDidUpdate(){ if(API_URL&&!this.state.session) return; const o={}; DATA_KEYS.forEach(k=>o[k]=this.state[k]); try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){} }
@@ -771,7 +777,6 @@ class Component extends DCLogic {
   }
   applyServer(d){
     if(!d) return;
-    if(d.today) TODAY=d.today;
     // 尚未推送的後台編輯保留本機版本，不被伺服器舊值蓋掉
     const cfg=Object.assign(seedCfg(), d.cfg||{}); Object.keys(this._dirty||{}).forEach(k=>{ cfg[k]=this.state.cfg[k]; });
     this.setState({bookings:d.bookings||[],leaves:d.leaves||[],attendance:d.attendance||{},faults:d.faults||[],useLog:d.useLog||[],closing:d.closing||{},records:d.records||[],cfg});
@@ -789,6 +794,9 @@ class Component extends DCLogic {
   }
 
   renderVals(){
+    const tw=twNow(); TODAY=tw.date;
+    // 已過的日期，或今天已經結束的時段
+    const ended=(d,sl)=>d<TODAY||(d===TODAY&&String(sl.end)<=tw.hm);
     const s=this.state, cfg=s.cfg, cap=Number(cfg.capacity)||1, limit=Math.max(1,Number(cfg.noShowLimit)||1), TD=Number(cfg.trainDay);
     // 連線模式：身分來自登入帳號；離線示範：用左側按鈕切換
     // 「管理人員」已併入系統管理員（舊的本機狀態可能還存著 manager）
@@ -885,7 +893,8 @@ class Component extends DCLogic {
     }));
 
     // booking grid - anchored on TODAY's week and clamped to the semester range
-    const baseMonday=mondayOf(TODAY);
+    // 週末打開時直接顯示下週
+    const baseMonday=dow(TODAY)===6?add(TODAY,2):dow(TODAY)===0?add(TODAY,1):mondayOf(TODAY);
     const minWeek=Math.floor(diffDays(baseMonday,cfg.semStart||TODAY)/7);
     const maxWeek=Math.max(minWeek,Math.floor(diffDays(baseMonday,cfg.semEnd||TODAY)/7));
     const week=Math.min(maxWeek,Math.max(minWeek,Number(s.week)||0));
@@ -898,7 +907,7 @@ class Component extends DCLogic {
       if(!inSem(d)) return {num:'—',tag:'',sub:'非學期內',fill:'0%',bg:'#F3EEE3',cursor:'default',outline:'none',numColor:'#B8AC98',tagColor:'#857A6C',barColor:'transparent',onClick:()=>{}};
       const cl=clashes(d,sl);
       if(cl.length) return {num:'—',tag:'',sub:cl.map(c=>`${c.start} ${c.code}培訓`).join('・'),fill:'0%',bg:'repeating-linear-gradient(135deg,#F3EEE3 0 6px,#E9E1D2 6px 12px)',cursor:'default',outline:'none',numColor:'#B8AC98',tagColor:'#857A6C',barColor:'transparent',onClick:()=>{}};
-      const n=count(d,sl.id), full=n>=cap, past=d<TODAY;
+      const n=count(d,sl.id), full=n>=cap, past=ended(d,sl);
       const mine=bookings.some(b=>b.sid===me&&b.date===d&&b.slot===sl.id&&live(b));
       const pend=bookings.filter(b=>b.date===d&&b.slot===sl.id&&b.status==='pending').length;
       return {num:`${n}/${cap}`,tag:isStudent&&mine?'我的預約':full?'額滿':past?'已結束':'',
@@ -920,7 +929,7 @@ class Component extends DCLogic {
       const clashB=already?null:bookings.filter(b=>b.sid===me&&b.date===date&&b.slot!==slot&&live(b))
         .map(b=>slotById(b.slot)).find(o=>overlap(sl,o));
       let note='';
-      if(!already){ if(mySusp) note=`無故缺席已達 ${limit} 次，預約權限暫停至學期結束`; else if(date<TODAY) note='此時段已結束'; else if(!inSem(date)) note=`已超出本學期（至 ${String(cfg.semEnd||'').replace(/-/g,'/')}）`; else if(clashB) note=`與你已預約的 ${clashB.name||''} ${clashB.start}–${clashB.end} 時間重疊`; else if(n>=cap) note=`此時段已達上限 ${cap} 人`; }
+      if(!already){ if(mySusp) note=`無故缺席已達 ${limit} 次，預約權限暫停至學期結束`; else if(ended(date,sl)) note='此時段已結束'; else if(!inSem(date)) note=`已超出本學期（至 ${String(cfg.semEnd||'').replace(/-/g,'/')}）`; else if(clashB) note=`與你已預約的 ${clashB.name||''} ${clashB.start}–${clashB.end} 時間重疊`; else if(n>=cap) note=`此時段已達上限 ${cap} 人`; }
       slotVals={slotOpen:true,slotTitle:`週${DOW[dow(date)]} ${sl.name||''} ${sl.start}–${sl.end}`,slotTitleSub:date.replace(/-/g,'.'),slotCount:String(n),slotRows:rows,slotEmpty:!rows.length,slotNote:note,
         slotCanBook:!already&&!note,slotCanCancel:!!mineB,
         // guard here too, not only in the template, so a stale handler cannot bypass the rules

@@ -150,7 +150,7 @@ pending ──► confirmed ──► checkedin ──► done
 | `closingItems` | 字串 | 3 行 | 最後離開者檢查項目 |
 | `slotsV2` | 布林 | `true` | 時段結構版本標記，**請勿改動** |
 | `closing` | 物件 | `{}` | 最後離開者勾選狀態，key 為項目文字 |
-| `today` | 字串 | *(選填)* | 示範用的固定日期；留空則用伺服器真實日期 |
+| `today` | — | — | **已停用**：系統一律使用台灣真實日期，Sheet 裡若還有此列可刪除 |
 
 > **為什麼要逐鍵存而不是整包 JSON 存一格**
 > 學員現在可以編輯 `slots`。若整包存一格，學員改時段時會連帶覆蓋管理者剛改的 `students`。
@@ -224,7 +224,7 @@ Content-Type: text/plain;charset=utf-8
 | `SLOT_CLOSED` | 此時段不開放預約 | `open === 'no'` 或 `start >= end` |
 | `NOT_WEEKDAY` | 僅開放週一至週五 | `dow` 不在 1–5 |
 | `OUT_OF_SEMESTER` | 已超出本學期（至 2026/11/13） | 不在 `[semStart, semEnd]` |
-| `PAST_DATE` | 此時段已結束 | `date < today` |
+| `PAST_DATE` | 此時段已結束 | `date < today`，或今天且時段結束時間已過（台灣時間） |
 | `TRAINING_CLASH` | 與固定培訓時間重疊 | 培訓日且與 `classes` 時間重疊 |
 | `SUSPENDED` | 無故缺席已達 3 次，預約權限暫停至學期結束 | `noshow >= noShowLimit` |
 | `DUPLICATE` | 你已預約此時段 | 同 `sid+date+slot` 已有 live 預約 |
@@ -311,7 +311,7 @@ Content-Type: text/plain;charset=utf-8
    且 slot.start < slot.end       → SLOT_CLOSED
 3. dow(date) in 1..5              → NOT_WEEKDAY
 4. semStart <= date <= semEnd     → OUT_OF_SEMESTER
-5. date >= today                  → PAST_DATE
+5. date >= today，且若為今天，slot.end > 現在時刻（台灣時間） → PAST_DATE
 6. 若 dow(date) === trainDay：
    slot 與任一 class 時間重疊      → TRAINING_CLASH
 7. 該 sid 的 noshow 數 < noShowLimit → SUSPENDED
@@ -517,7 +517,7 @@ GAS 最常見的困惑：改了 `Code.gs` 按儲存，`/exec` 卻還是舊行為
 | 決策 | 結論 |
 |---|---|
 | 既有資料 | 無可沿用的資料表，直接以示範資料建立（`setup()` / `resetDemo`） |
-| `today` | 維持示範日期：`Config.today = "2026-09-30"`；清空該格即改用伺服器真實日期（Asia/Taipei） |
+| `today` | 一律使用台灣真實日期與時刻（Asia/Taipei）；前端同樣以台灣時區計算，不受裝置時區影響。週末打開預約表直接顯示下週 |
 | UseLog 歸檔 | 暫不做；Sheet 保留全部，`load` 只回傳最新 200 筆 |
 | `resetDemo` / `setup()` 範圍 | 只清除並重寫上述 6 張分頁，其他分頁一律不碰 |
 

@@ -13,7 +13,7 @@
 /** ───── 依你的 Sheet 實際結構調整這一區 ───── */
 const SHEET_ID = '';   // '' = 與此腳本綁定的試算表（擴充功能 → Apps Script 建立）；獨立專案才需填試算表 ID
 const TZ = 'Asia/Taipei';
-const DEMO_TODAY = '2026-09-30';   // 寫入 Config.today；清空該格即改用伺服器真實日期
+const SEED_DATE = '2026-09-30';   // 示範資料的基準日期（只用於「重設示範資料」）；系統的「今天」一律是台灣真實日期
 
 // 固定角色與權限（系統管理員已含原「管理人員」的工作）。培訓專員／培訓輔導員的顯示名稱以後台「人員編制」為準
 //   bookings   確認、婉拒、簽到、簽退、登記缺席、代學員預約或取消
@@ -112,7 +112,7 @@ const CFG_LABELS = {
   noShowLimit:'無故缺席停權次數', roles:'人員編制與職責', classes:'固定培訓班別', slots:'自由編排時段',
   students:'學員名單', equipment:'設備清單', consumables:'耗材項目與庫存', rules:'管理辦法條文',
   checkoutItems:'簽退檢查項目', closingItems:'最後離開者檢查項目', closing:'最後離開者勾選狀態',
-  slotsV2:'時段結構版本（請勿改動）', today:'示範日期（清空 = 使用真實日期）'
+  slotsV2:'時段結構版本（請勿改動）', today:'（已停用，可刪除此列）'
 };
 
 // 舊版英文分頁名稱：setup() 遇到時會自動改名並換成中文標題
@@ -232,7 +232,7 @@ const ACTIONS = {
     const d = dow_(date);
     if (d < 1 || d > 5) throw new ApiError('NOT_WEEKDAY', '僅開放週一至週五');
     if (!inSem_(cfg, date)) throw new ApiError('OUT_OF_SEMESTER', `已超出本學期（至 ${slash_(cfg.semEnd)}）`);
-    if (date < today) throw new ApiError('PAST_DATE', '此時段已結束');
+    if (date < today || (date === today && String(sl.end) <= nowHM_())) throw new ApiError('PAST_DATE', '此時段已結束');
     if (d === Number(cfg.trainDay) && cfg.classes.some(c => overlap_(sl, c)))
       throw new ApiError('TRAINING_CLASH', '與固定培訓時間重疊');
 
@@ -760,9 +760,12 @@ function inSem_(cfg, d) {
   return (!cfg.semStart || d >= cfg.semStart) && (!cfg.semEnd || d <= cfg.semEnd);
 }
 
+// 台灣真實日期與時刻（cfg 參數保留只為相容舊呼叫）
 function today_(cfg) {
-  const t = normDate_(cfg.today);
-  return isDate_(t) ? t : Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+  return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+}
+function nowHM_() {
+  return Utilities.formatDate(new Date(), TZ, 'HH:mm');
 }
 
 // 與前端 now() 相同格式：MM/DD HH:mm（日期取系統今日，時間取真實時鐘）
@@ -907,12 +910,11 @@ function resetDemoFromEditor() {
 }
 
 function seedAll_() {
-  const now = ts_(), T = DEMO_TODAY;
+  const now = ts_(), T = SEED_DATE;
   let id = 1;
   const b = (sid, date, slot, status) => ({ id: id++, sid, date, slot, status, updatedAt: now });
   const cfg = seedCfg_();
   cfg.closing = {};
-  cfg.today = DEMO_TODAY;
 
   const data = {
     bookings: [
