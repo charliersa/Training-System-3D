@@ -2,7 +2,17 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>3D 人培室管理</title>
+<meta name="description" content="3D 人培室的自由練習預約、簽到簽退、培訓點名、請假與設備耗材管理">
+<meta name="theme-color" content="#3B3530">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="人培室">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script src="./support.js"></script>
 </head>
 <body>
@@ -69,6 +79,8 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
     </sc-for>
   </nav>
   <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;font-size:11px;color:#A89C8A">
+    <sc-if value="{{ canInstall }}" hint-placeholder-val="{{ false }}"><button onClick="{{ installApp }}" style="width:100%;padding:8px;border:none;background:#B5654A;color:#fff;font-size:12px;font-weight:600;cursor:pointer">安裝 App 到桌面／主畫面</button></sc-if>
+    <sc-if value="{{ iosHint }}" hint-placeholder-val="{{ false }}"><div style="color:#8C8173;line-height:1.6">iPhone／iPad：點 Safari 的「分享」→「加入主畫面」即可安裝成 App</div></sc-if>
     <div>今天 {{ demoDate }}</div>
     <div style="color:{{ syncColor }}">{{ syncLabel }}</div>
     <sc-if value="{{ canReset }}" hint-placeholder-val="{{ true }}"><button onClick="{{ reset }}" style="width:100%;padding:6px;border:1px solid #CFC5B3;background:transparent;color:#8C8173;font-size:11px;cursor:pointer">重設全部示範資料</button></sc-if>
@@ -724,6 +736,7 @@ class Component extends DCLogic {
   componentDidMount(){
     // 每分鐘重繪一次，讓「已結束」的時段與跨日自動更新
     if(!this._tick) this._tick=setInterval(()=>this.setState({tick:Date.now()}),60000);
+    if(!this._pwa){ this._pwa=()=>this.setState({tick:Date.now()}); window.addEventListener('pwa-installable',this._pwa); }
     this._rs=()=>{const n=window.innerWidth<840; if(n!==this.state.narrow) this.setState({narrow:n,menuOpen:false});}; this._rs(); window.addEventListener('resize',this._rs);
     if(API_URL&&!this._poll){
       if(this.state.session) this.pull();
@@ -732,7 +745,7 @@ class Component extends DCLogic {
       // 分頁在背景時改為每 30 秒檢查一次，仍能收到預約通知
       this._poll=setInterval(()=>{ this._pn=(this._pn||0)+1; if(document.visibilityState==='visible'||this._pn%6===0) this.ping(); },PING_MS);
     } }
-  componentWillUnmount(){ window.removeEventListener('resize',this._rs); clearInterval(this._tick); this._tick=null;
+  componentWillUnmount(){ window.removeEventListener('resize',this._rs); clearInterval(this._tick); this._tick=null; if(this._pwa){ window.removeEventListener('pwa-installable',this._pwa); this._pwa=null; }
     if(this._poll){ clearInterval(this._poll); this._poll=null; document.removeEventListener('visibilitychange',this._vis); window.removeEventListener('focus',this._vis); } }
   // 連線模式未登入時不寫本機快取（登出後不留下學員名單等資料）
   componentDidUpdate(){ if(API_URL&&!this.state.session) return; const o={}; DATA_KEYS.forEach(k=>o[k]=this.state[k]); try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){} }
@@ -1125,6 +1138,13 @@ class Component extends DCLogic {
       openPw:()=>this.setState({pwOpen:true,pwCur:'',pwNew:'',pwNew2:'',pwError:''}),closePw:()=>this.setState({pwOpen:false}),
       onPwCur:e=>this.setState({pwCur:e.target.value}),onPwNew:e=>this.setState({pwNew:e.target.value}),onPwNew2:e=>this.setState({pwNew2:e.target.value}),
       savePw:()=>this.changePw(),
+      // PWA 安裝：Chrome／Edge 用安裝提示；iPhone 只能手動「加入主畫面」，已安裝（獨立視窗）時都不顯示
+      ...(()=>{ const nav=typeof navigator!=='undefined'?navigator:{};
+        const standalone=!!nav.standalone||!!(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
+        const ios=/iphone|ipad|ipod/i.test(nav.userAgent||'');
+        return {canInstall:!standalone&&!!window.__pwaPrompt, iosHint:!standalone&&ios&&!window.__pwaPrompt,
+          installApp:()=>{ const pr=window.__pwaPrompt; if(!pr) return; pr.prompt();
+            Promise.resolve(pr.userChoice).finally(()=>{ window.__pwaPrompt=null; this.setState({tick:Date.now()}); }); } }; })(),
       createdOpen:!!(s.createdAccounts||[]).length,createdAccounts:s.createdAccounts||[],closeCreated:()=>this.setState({createdAccounts:[]}),
       noticeOpen:!!s.noticeOpen,unreadLabel:s.unread?String(s.unread):'',noticeBtnBg:s.unread?'#F3E6CF':'transparent',
       noticeList:(s.notices||[]).map((n,i)=>({...n,bg:i<(s.noticeSeen||0)?'#F3E6CF':'transparent'})),noticeEmpty:!(s.notices||[]).length,noticeHas:!!(s.notices||[]).length,
@@ -1195,6 +1215,18 @@ class Component extends DCLogic {
     };
   }
 }
+</script>
+<script>
+// PWA：註冊 Service Worker，並保留安裝提示給側欄的「安裝 App」按鈕
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js').catch(function () {}); });
+}
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault(); window.__pwaPrompt = e; window.dispatchEvent(new Event('pwa-installable'));
+});
+window.addEventListener('appinstalled', function () {
+  window.__pwaPrompt = null; window.dispatchEvent(new Event('pwa-installable'));
+});
 </script>
 </body>
 </html>
