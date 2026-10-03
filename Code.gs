@@ -15,7 +15,7 @@ const SHEET_ID = '';   // '' = 與此腳本綁定的試算表（擴充功能 →
 const TZ = 'Asia/Taipei';
 const SEED_DATE = '2026-09-30';   // 示範資料的基準日期（只用於「重設示範資料」）；系統的「今天」一律是台灣真實日期
 
-// 固定角色與權限。管理人員與系統管理員同樣有全部管理權限，只差「重設全部資料」僅限系統管理員
+// 固定 4 種角色。管理人員與系統管理員同樣有全部管理權限，只差「重設全部資料」僅限系統管理員；培訓輔導員可點名全部班別
 //   bookings   確認、婉拒、簽到、簽退、登記缺席、代學員預約或取消
 //   leaves     審核請假、代學員請假
 //   attendance 點名任何班別（其他角色只能點自己負責的班別，依「培訓班別」的負責職務）
@@ -25,9 +25,7 @@ const SEED_DATE = '2026-09-30';   // 示範資料的基準日期（只用於「�
 const ROLES = {
   admin:   { label:'系統管理員', perms:['bookings','leaves','attendance','faultFix','restock','config','slots','reset','records'] },
   manager: { label:'管理人員',   perms:['bookings','leaves','attendance','faultFix','restock','config','slots','records'] },
-  trainer: { label:'培訓專員',   perms:['leaves','records'] },
-  tutor:   { label:'培訓輔導員', perms:['faultFix'] },
-  editor:  { label:'編輯人員',   perms:['config','slots'] },
+  tutor:   { label:'培訓輔導員', perms:['attendance','faultFix'] },
   student: { label:'學員',       perms:['slots'] }
 };
 const SESSION_HOURS = 6;   // 登入有效時間；有操作就自動延長
@@ -79,8 +77,7 @@ const ENUMS = {
   records:    { suspend: { auto:['依規則','#FFFFFF','#857A6C'], on:['強制停權','#F1DDD5','#9A4A3A'],
                            off:['解除停權','#E3E8D8','#4F6140'] } },
   accounts:   { role:    { admin:['系統管理員','#3B3530','#FBF8F2'], manager:['管理人員','#E2E6EA','#4A5A6E'],
-                           trainer:['培訓專員','#F3E6CF','#8A6A3A'], tutor:['培訓輔導員','#E3E8D8','#4F6140'],
-                           editor:['編輯人員','#ECE6DA','#6B7A5A'], student:['學員','#FFFFFF','#3B3530'] },
+                           tutor:['培訓輔導員','#E3E8D8','#4F6140'], student:['學員','#FFFFFF','#3B3530'] },
                 active:  { TRUE:['啟用','#E3E8D8','#4F6140'], FALSE:['停用','#F1DDD5','#9A4A3A'] } }
 };
 // 資料分頁（重設示範資料只動這些；帳號管理永遠不會被清除）
@@ -247,7 +244,7 @@ const ACTIONS = {
     const rec = readTable_('records').rows.find(r => r.sid === sid) || {};
     const ns = Math.max(0, all.filter(b => b.sid === sid && b.status === 'noshow').length + (parseInt(rec.nsAdj, 10) || 0));
     if (rec.suspend === 'on' || (rec.suspend !== 'off' && ns >= limit))
-      throw new ApiError('SUSPENDED', rec.suspend === 'on' ? '預約權限已由管理員暫停，請洽培訓專員'
+      throw new ApiError('SUSPENDED', rec.suspend === 'on' ? '預約權限已由管理員暫停，請洽管理人員'
         : `無故缺席已達 ${limit} 次，預約權限暫停至學期結束`);
 
     const mine = all.filter(b => b.sid === sid && b.date === date && LIVE.includes(b.status));

@@ -160,13 +160,12 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
     <div style="padding:14px 18px;border-bottom:1px solid #D6CCBA;font-weight:600">系統權限對照</div>
     <div style="overflow-x:auto">
       <div style="min-width:560px;display:grid;grid-template-columns:1.6fr repeat(4,1fr);font-size:14px">
-        <div style="padding:10px 18px;background:#F3EEE3;font-weight:600">功能</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">學員</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">{{ rt.manager }}</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">{{ rt.trainer }}</div><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">{{ rt.tutor }}</div>
-        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">自由時段預約</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">確認</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div>
-        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">簽到簽退 / 未到登記</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div>
-        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">固定培訓請假</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">申請</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">審核</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div>
-        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">固定培訓點名</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">—</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">負責班</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">負責班</div>
-        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">設備故障回報</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">● 結案</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">● 結案</div>
-        <div style="padding:10px 18px;border-top:1px solid #E6DDCD">後台設定</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:#B8AC98">檢視</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center">●</div>
+        <div style="padding:10px 18px;background:#F3EEE3;font-weight:600">功能</div>
+        <sc-for list="{{ permHead }}" as="ph" hint-placeholder-count="4"><div style="padding:10px;background:#F3EEE3;font-weight:600;text-align:center">{{ ph.t }}</div></sc-for>
+        <sc-for list="{{ permRows }}" as="pr" hint-placeholder-count="7">
+          <div style="padding:10px 18px;border-top:1px solid #E6DDCD">{{ pr.label }}</div>
+          <sc-for list="{{ pr.cells }}" as="pc"><div style="padding:10px;border-top:1px solid #E6DDCD;text-align:center;color:{{ pc.c }}">{{ pc.t }}</div></sc-for>
+        </sc-for>
       </div>
     </div>
   </section>
@@ -204,7 +203,7 @@ input:disabled,select:disabled,textarea:disabled{background:#F3EEE3;color:#857A6
     <sc-if value="{{ isStudent }}" hint-placeholder-val="{{ false }}">
       <section style="background:#FBF8F2;border:1px solid #D6CCBA;padding:18px;display:flex;flex-direction:column;gap:12px">
         <div style="font-weight:600">申請固定培訓請假</div>
-        <div style="font-size:13px;color:#857A6C">需提前向{{ rt.trainer }}（{{ trainerPeople }}）請假。</div>
+        <div style="font-size:13px;color:#857A6C">需提前申請，由{{ rt.manager }}或系統管理員審核。</div>
         <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">日期
           <select value="{{ leaveDate }}" onChange="{{ onLeaveDate }}" style="padding:9px;border:1px solid #D6CCBA;background:#FBF8F2;font-size:14px"><sc-for list="{{ leaveDates }}" as="o"><option value="{{ o.v }}">{{ o.t }}</option></sc-for></select>
         </label>
@@ -608,10 +607,12 @@ const CFG_PUSH = ['labBadge','labName','labSub','rulesTitle','checkoutItems','cl
 const ROLE_PERMS = {
   admin:['bookings','leaves','attendance','faultFix','restock','config','slots','reset','records'],
   manager:['bookings','leaves','attendance','faultFix','restock','config','slots','records'],
-  trainer:['leaves','records'], tutor:['faultFix'],
-  editor:['config','slots'], student:['slots']
+  tutor:['attendance','faultFix'], student:['slots']
 };
-const FIXED_ROLE_LABELS = {admin:'系統管理員', editor:'編輯人員', student:'學員'};
+const FIXED_ROLE_LABELS = {admin:'系統管理員', student:'學員'};
+// 人員編制頁的權限對照表（依 ROLE_PERMS 產生，學員預約／請假另列）
+const PERM_ROWS = [['自由時段預約','book'],['婉拒預約、簽到簽退、未到登記','bookings'],['固定培訓請假','leave'],['固定培訓點名','attendance'],
+  ['設備故障結案','faultFix'],['耗材補貨','restock'],['考核紀錄調整','records'],['後台設定','config'],['重設全部資料','reset']];
 const KEY = 'lab3d-mgmt-v2';
 const SESSION_KEY = 'lab3d-session';
 // 台灣時間的今天與現在時刻（不受使用者電腦時區影響）；每次重繪時更新
@@ -914,7 +915,7 @@ class Component extends DCLogic {
     const NAV=[['dash','今日總覽',''],['staff','人員編制',''],['wed',trainName,isTrainer&&pendingLeaves?pendingLeaves:''],['book','自由預約',isMgr&&pendingAll?pendingAll:''],
       ['check','簽到簽退',isMgr&&todayOpen?todayOpen:''],['equip','設備耗材',openFaults||''],['record','考核紀錄',''],['rules','管理辦法',''],['admin','後台設定','']];
     const nav=NAV.filter(([id])=>!(isStudent&&id==='record')).map(([id,label,badge],i)=>({label,badge:badge?String(badge):'',no:pad(i+1),onClick:go(id),bg:s.page===id?'#3B3530':'transparent',fg:s.page===id?'#FBF8F2':'#5A5048'}));
-    const roleButtons=[['student','學員'],['manager',rt.manager],['trainer',rt.trainer],['tutor',rt.tutor],['editor','編輯人員'],['admin','系統管理員']].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
+    const roleButtons=[['student','學員'],['tutor',rt.tutor],['manager',rt.manager],['admin','系統管理員']].map(([id,label])=>({label,onClick:()=>this.setState({role:id,slotSel:null}),bg:role===id?'#3B3530':'transparent',fg:role===id?'#FBF8F2':'#5A5048'}));
 
     // dashboard
     const stats=[
@@ -1109,7 +1110,12 @@ class Component extends DCLogic {
       menuBtnBg:s.menuOpen?'#DED5C5':'transparent',bar1:s.menuOpen?'translateY(7px) rotate(45deg)':'none',bar2:s.menuOpen?'0':'1',bar3:s.menuOpen?'translateY(-7px) rotate(-45deg)':'none',
       asidePad:s.narrow?'12px 16px':'24px 18px',asidePos:s.narrow?'sticky':'static',
       narrowSub:s.narrow&&!s.menuOpen?(NAV.find(n=>n[0]===s.page)||[,''])[1]+'・'+currentName:cfg.labSub,
-      cfg,rt,trainerPeople:roleOf('trainer').people,roleButtons,nav,isStudent,me,students:STU.map(x=>{const c=clsOf(x.group);return {id:x.id,label:`${x.name}（${c?c.name:'未分班'}）`};}),onMe:e=>this.setState({me:e.target.value}),
+      permHead:[['student','學員'],['tutor',rt.tutor],['manager',rt.manager],['admin','系統管理員']].map(([k,t])=>({k,t})),
+      permRows:PERM_ROWS.map(([label,p])=>({label,cells:['student','tutor','manager','admin'].map(r=>{
+        const has=p==='book'?r==='student':p==='leave'?true:(ROLE_PERMS[r]||[]).includes(p);
+        const t=p==='leave'?(r==='student'?'申請':(ROLE_PERMS[r]||[]).includes('leaves')?'審核':'—'):p==='config'&&r==='student'?'時段':has?'●':'—';
+        return {t,c:t==='—'?'#B8AC98':'#3B3530'}; })})),
+      cfg,rt,roleButtons,nav,isStudent,me,students:STU.map(x=>{const c=clsOf(x.group);return {id:x.id,label:`${x.name}（${c?c.name:'未分班'}）`};}),onMe:e=>this.setState({me:e.target.value}),
       showRoleSwitch:!API_URL,showMeSelect:!API_URL&&isStudent,showAccount:!!session,roleLabel:session?roleLabel(role):'',
       canReset:!API_URL||can('reset'),
       needLogin:!!API_URL&&!session,loginUser:s.loginUser,loginPw:s.loginPw,loginError:s.loginError,authBusy:!!s.authBusy,loginBtn:s.authBusy?'登入中…':'登入',
@@ -1152,7 +1158,7 @@ class Component extends DCLogic {
       canResetCfg:canEdit,
       studentEditNotice:!canEdit&&can('slots')&&STUDENT_TABS.includes(s.adminTab),
       studentRONotice:!canEdit&&!(can('slots')&&STUDENT_TABS.includes(s.adminTab)),
-      roNoticeText:can('slots')?'此頁籤僅系統管理員與編輯人員可編輯，你目前僅可檢視。請切至「自由編排時段」編排時程。':'後台設定僅系統管理員與編輯人員可編輯，你目前僅可檢視。',
+      roNoticeText:can('slots')?`此頁籤僅系統管理員與${rt.manager}可編輯，你目前僅可檢視。請切至「自由編排時段」編排時程。`:`後台設定僅系統管理員與${rt.manager}可編輯，你目前僅可檢視。`,
       adminSubtitle:canEdit?'所有內容即時生效並自動儲存。':can('slots')?'你可編排「自由編排時段」，其餘頁籤僅可檢視。':'僅可檢視。',
       isDash:s.page==='dash'||(isStudent&&s.page==='record'),isStaff:s.page==='staff',isWed:s.page==='wed',isBook:s.page==='book',isCheck:s.page==='check',isEquip:s.page==='equip',isRecord:s.page==='record'&&!isStudent,isRules:s.page==='rules',isAdmin:s.page==='admin',
       todayHeader:`${TODAY.replace(/-/g,'.')} ${EDOW[dow(TODAY)]}${isTrainToday?' · 固定培訓日':''}`,
@@ -1167,7 +1173,7 @@ class Component extends DCLogic {
       leaveReason:s.leaveReason,onLeaveReason:e=>this.setState({leaveReason:e.target.value}),
       submitLeave:()=>{ if(!leaveDate){this.flash('本學期已無可請假日期');return;} if(!s.leaveReason.trim()){this.flash('請填寫請假原因');return;}
         if(s.leaves.some(l=>l.sid===me&&l.date===leaveDate&&l.status!=='rejected')){this.flash('該日已有請假申請');return;}
-        const reason=s.leaveReason.trim(); this.setState(st=>({leaves:[...st.leaves,{id:Date.now(),sid:me,date:leaveDate,reason,status:'pending'}],leaveReason:''}));this.flash(`已送出，待${rt.trainer}審核`);this.call('submitLeave',{sid:me,date:leaveDate,reason});},
+        const reason=s.leaveReason.trim(); this.setState(st=>({leaves:[...st.leaves,{id:Date.now(),sid:me,date:leaveDate,reason,status:'pending'}],leaveReason:''}));this.flash(`已送出，待${rt.manager}審核`);this.call('submitLeave',{sid:me,date:leaveDate,reason});},
       leaveTitle:isStudent?'我的請假紀錄':'請假申請',leaveList,leaveEmpty:!leaveList.length,
       weekLabel:`${md(days[0])} – ${md(days[4])}`,weekDays,grid,gridEmpty:!grid.length,prevWeek:()=>this.setState({week:Math.max(minWeek,week-1)}),nextWeek:()=>this.setState({week:Math.min(maxWeek,week+1)}),
       meSuspended:isStudent&&mySusp,semEndLabel:cfg.semEnd.replace(/-/g,'/'),bookHint:isMgr?'並查看預約名單':isStudent?'並預約':'',
